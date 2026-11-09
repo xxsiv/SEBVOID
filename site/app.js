@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // POCKETBASE FETCH (Posts + Comments)
     // =========================================
     try {
-        const pbUrl = `https://void.api.sebco.win/api/collections/posts/records?filter=(sector='${currentSector}')&sort=-created`;
+        const pbUrl = `https://api.sebco.win/api/collections/posts/records?filter=(sector='${currentSector}')&sort=-created`;
         const response = await fetch(pbUrl);
 
         if (!response.ok) throw new Error(`PocketBase denied access. Status: ${response.status}`);
@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             let commentsHtml = '';
             try {
-                const commUrl = `https://void.api.sebco.win/api/collections/comments/records?filter=(post='${post.id}')&sort=created`;
+                const commUrl = `https://api.sebco.win/api/collections/comments/records?filter=(post='${post.id}')&sort=created`;
                 const commRes = await fetch(commUrl);
                 if (commRes.ok) {
                     const commData = await commRes.json();
@@ -78,7 +78,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 };
 
                 try {
-                    const postRes = await fetch('https://void.api.sebco.win/api/collections/comments/records', {
+                    const postRes = await fetch('https://api.sebco.win/api/collections/comments/records', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
@@ -114,7 +114,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         div.id = 'post-fallback';
         div.innerHTML = `
         <h2>DATABASE OFFLINE</h2>
-        <p>Ensure PocketBase server is running at void.api.sebco.win.</p>
+        <p>Ensure PocketBase server is running at api.sebco.win.</p>
         <div class="hashtags"><span class="hashtag">#error</span></div>
         `;
         postContainer.appendChild(div);
