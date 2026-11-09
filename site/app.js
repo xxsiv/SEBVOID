@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // POCKETBASE FETCH (Posts + Comments)
     // =========================================
     try {
-        const pbUrl = `https://api.sebco.win/api/collections/posts/records?filter=(sector='${currentSector}')&sort=-created`;
+        const pbUrl = `https://api.sebco.win/api/collections/posts/records?filter=${encodeURIComponent(`sector='${currentSector}'`)}&sort=-created`;
         const response = await fetch(pbUrl);
 
         if (!response.ok) throw new Error(`PocketBase denied access. Status: ${response.status}`);
@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             let commentsHtml = '';
             try {
-                const commUrl = `https://api.sebco.win/api/collections/comments/records?filter=(post='${post.id}')&sort=created`;
+                const commUrl = `https://api.sebco.win/api/collections/comments/records?filter=${encodeURIComponent(`post='${post.id}'`)}&sort=created`;
                 const commRes = await fetch(commUrl);
                 if (commRes.ok) {
                     const commData = await commRes.json();
@@ -67,12 +67,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.querySelectorAll('.comment-form').forEach(form => {
             form.addEventListener('submit', async (e) => {
                 e.preventDefault();
-                const postId = form.dataset.postId;
+                const targetPostId = form.getAttribute('data-post-id');
                 const authorInput = form.querySelector('.comment-input');
                 const textInput = form.querySelector('.comment-textarea');
 
                 const payload = {
-                    post: postId,
+                    post: targetPostId,
                     author: authorInput.value.trim(),
                                   text: textInput.value.trim()
                 };
@@ -86,7 +86,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                     if (postRes.ok) {
                         const newComment = await postRes.json();
-                        const listEl = document.getElementById(`comment-list-${postId}`);
+                        const listEl = document.getElementById(`comment-list-${targetPostId}`);
 
                         if (listEl.querySelector('div[style]')) listEl.innerHTML = '';
 
@@ -99,10 +99,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                         textInput.value = '';
                         listEl.scrollTop = listEl.scrollHeight;
                     } else {
-                        alert('Transmission failed. Check PocketBase permissions for comments collection.');
+                        const errData = await postRes.json();
+                        console.error('PocketBase POST Error:', errData);
+                        alert(`Transmission failed: ${errData.message || 'Check console'}. Verify your PocketBase API Rules allow public Creates.`);
                     }
                 } catch (err) {
                     console.error("Failed to post comment:", err);
+                    alert("Network error: Could not reach the API.");
                 }
             });
         });
@@ -121,7 +124,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function escapeHtml(str) {
-        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        if (!str) return '';
+        return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
 
     const loadingScreen = document.getElementById('loading-screen');
