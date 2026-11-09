@@ -19,7 +19,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         fetchedPostCount = Math.max(data.items.length, 1);
 
         for (const post of data.items) {
-            const postId = `post-${post.id}`;
             const rawTags = post.hashtags ? post.hashtags : '';
             const tagsHtml = rawTags.split(',')
             .map(tag => tag.trim() ? `<span class="hashtag">#${tag.trim()}</span>` : '')
@@ -41,12 +40,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             const div = document.createElement('div');
             div.className = 'disconnected-shape';
-            div.id = postId;
+            div.id = `post-${post.id}`;
             div.innerHTML = `
             <div class="post-header">
-            <button class="bookmark-btn" data-id="${postId}">[ BOOKMARK ]</button>
+            <button class="bookmark-btn" data-id="post-${post.id}">[ BOOKMARK ]</button>
             </div>
-            <h2>${post.title}</h2>
+            <h2>${escapeHtml(post.title)}</h2>
             <div>${post.content}</div>
             <div class="hashtags">${tagsHtml}</div>
 
@@ -54,7 +53,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             <div class="comment-list" id="comment-list-${post.id}">
             ${commentsHtml || '<div style="font-family:monospace; font-size:0.85rem; color:#666;">No transmissions yet.</div>'}
             </div>
-            <form class="comment-form" data-post-id="${post.id}">
+            <form class="comment-form">
             <input type="text" class="comment-input" placeholder="Your Name / Alias" required autocomplete="off">
             <textarea class="comment-textarea" rows="2" placeholder="Leave a transmission..." required></textarea>
             <button type="submit" class="comment-submit">[ TRANSMIT ]</button>
@@ -62,18 +61,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>
             `;
             postContainer.appendChild(div);
-        }
 
-        document.querySelectorAll('.comment-form').forEach(form => {
+            // Bind listener directly inside loop for accurate post.id closure binding
+            const form = div.querySelector('.comment-form');
             form.addEventListener('submit', async (e) => {
                 e.preventDefault();
-                const targetPostId = form.getAttribute('data-post-id');
                 const authorInput = form.querySelector('.comment-input');
                 const textInput = form.querySelector('.comment-textarea');
 
                 const payload = {
-                    post: targetPostId,
-                    author: authorInput.value.trim(),
+                    post: post.id, // Explicit PocketBase record ID (e.g. "abc123xyz")
+                author: authorInput.value.trim(),
                                   text: textInput.value.trim()
                 };
 
@@ -86,7 +84,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                     if (postRes.ok) {
                         const newComment = await postRes.json();
-                        const listEl = document.getElementById(`comment-list-${targetPostId}`);
+                        const listEl = document.getElementById(`comment-list-${post.id}`);
 
                         if (listEl.querySelector('div[style]')) listEl.innerHTML = '';
 
@@ -100,15 +98,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                         listEl.scrollTop = listEl.scrollHeight;
                     } else {
                         const errData = await postRes.json();
-                        console.error('PocketBase POST Error:', errData);
-                        alert(`Transmission failed: ${errData.message || 'Check console'}. Verify your PocketBase API Rules allow public Creates.`);
+                        console.error('PocketBase POST Error Details:', errData);
+                        alert(`Transmission failed: ${errData.message || 'Check console'}`);
                     }
                 } catch (err) {
                     console.error("Failed to post comment:", err);
-                    alert("Network error: Could not reach the API.");
+                    alert("Network error: Could not reach API.");
                 }
             });
-        });
+        }
 
     } catch (error) {
         console.error("PocketBase Error:", error);
