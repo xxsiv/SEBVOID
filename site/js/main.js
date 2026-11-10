@@ -6,13 +6,13 @@ import { initCursor, updateCursorBounds, cursorData, cursorTiltContainer, cursor
 import { initPanels, updateMaskScales, panelData, masks } from './panels.js';
 import { initVoxels, cubes, pillarGroups, debrisClusters, harvestingCubes, harvestedCubeIds, wireframeCubeIds, storageKeys } from './voxels.js';
 import { initUI, revealPage } from './ui.js';
+import { updateChunks, handleChunkRaycast } from './chunks.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     initScene();
     initCursor();
     initUI();
 
-    // Hold reveal until network request completes
     await fetchPostsAndComments(state.currentSector);
 
     initPanels();
@@ -42,6 +42,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (event.button !== 0 && event.button !== 2) return;
 
         raycaster.setFromCamera(state.mouse, camera);
+
+        // Check chunked instanced mesh raycasting first
+        if (event.button === 0) {
+            handleChunkRaycast(raycaster, camera, cubes, harvestingCubes);
+        }
+
         const intersects = raycaster.intersectObjects([...cubes, ...masks]);
 
         if (intersects.length > 0) {
@@ -94,6 +100,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         camera.position.z += (state.targetCameraZ - camera.position.z) * 0.08;
 
+        // Update spatial chunks based on camera position
+        updateChunks(camera.position.z);
+
         if (cursorData.cursorPlaneWidth) {
             const pX = state.mouse.x * (cursorData.cursorPlaneWidth / 2);
             const pY = state.mouse.y * (cursorData.cursorPlaneHeight / 2);
@@ -105,7 +114,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         state.currentVelocity.x += (state.targetVelocity.x - state.currentVelocity.x) * 0.15;
         state.currentVelocity.y += (state.targetVelocity.y - state.currentVelocity.y) * 0.15;
 
-        cursorTiltContainer.rotation.x += (cursorData.targetTiltX - cursorTiltContainer.rotation.x) * 0.3;
+        cursorTiltContainer.rotation.x += (cursorData.targetTiltX - cursorData.rotation.x) * 0.3;
         cursorSpinGroup.rotation.y -= 0.02;
 
         for (let i = harvestingCubes.length - 1; i >= 0; i--) {
@@ -187,7 +196,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     animate();
 
-    // Reveal page after render loop starts
     requestAnimationFrame(() => {
         revealPage();
     });
