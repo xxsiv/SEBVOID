@@ -1,48 +1,75 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SEBVOID</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>S.E.B.VOID</title>
+  <link rel="stylesheet" href="style.css">
 </head>
-<body>
-    <div id="bg-canvas-container"></div>
-    <div id="fg-canvas-container"></div>
-    <div id="cube-count-display">CUBE COUNT: 0/0</div>
-    <div id="btn-bookmarks">[ ARCHIVES ]</div>
-    
-    <!-- Modals and Overlays -->
-    <div id="bookmarks-modal" class="modal-overlay" style="display:none;">
-        <div class="modal-content">
-            <button id="close-bookmarks">X</button>
-            <h2>ARCHIVED TRANSMISSIONS</h2>
-            <div id="bookmarks-list"></div>
-        </div>
-    </div>
-    <div id="teleport-flash" class="teleport-flash"></div>
-    
-    <!-- UI Controls -->
-    <div class="ui-left">
-        <input type="text" id="spyglass-search" placeholder="Search Transmissions...">
-        <div id="search-results"></div>
-    </div>
-    
-    <!-- Navigation -->
-    <div class="nav-controls">
-        <button id="btn-prev" class="hud-button">&lt; PREV</button>
-        <button id="btn-next" class="hud-button">NEXT &gt;</button>
-    </div>
-    
-    <!-- Main Content Area -->
-    <div id="post-container"></div>
+<body data-node="home">
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Modular Scripts -->
-    <script src="js/utils.js"></script>
-    <script src="js/api.js"></script>
-    <script src="js/ui.js"></script>
-    <script src="js/scene.js"></script>
-    <script src="js/main.js"></script>
+  <div id="loading-screen" class="loading-screen"></div>
+
+  <div id="bg-canvas-container" class="layer"></div>
+  <div id="fg-canvas-container" class="layer"></div>
+
+  <div class="ui-overlay">
+    <div class="ui-left">
+      <div class="ui-box ui-header" id="inventory-toggle">
+        <span class="ascii-plant">INVENTORY \/</span>
+      </div>
+      <div class="ui-box ui-body" id="inventory-body">
+        <div class="ui-item">
+          <div class="voxel-wrapper">
+            <div class="voxel-cube">
+              <div class="voxel-face front"></div><div class="voxel-face back"></div>
+              <div class="voxel-face right"></div><div class="voxel-face left"></div>
+              <div class="voxel-face top"></div><div class="voxel-face bottom"></div>
+            </div>
+          </div>
+          <span id="cube-count-display">CUBE COUNT: 0/0</span>
+        </div>
+
+        <div class="ui-item search-container">
+          <span>SEARCH</span>
+          <input type="text" id="spyglass-search" placeholder="#hashtags or text..." autocomplete="off">
+          <div id="search-results" class="search-dropdown"></div>
+        </div>
+
+        <button class="ui-box ui-header hud-button" id="btn-bookmarks" style="margin-top: 0.5rem; border-bottom: 4px solid var(--color-black);">
+          [ ARCHIVES ]
+        </button>
+
+        <div class="inventory-map-container">
+          <div class="ascii-art" id="ascii-map"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ui-right">
+      <div class="nav-stack">
+        <button class="ui-box ui-header hud-button" id="btn-next">NEXT</button>
+        <button class="ui-box ui-header hud-button" id="btn-prev">PREV</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="post-container" class="layer layer-mg" style="pointer-events: none;"></div>
+
+  <div id="bookmarks-modal" class="modal-overlay" style="display:none;">
+    <div class="ui-box modal-content">
+      <div class="ui-header" style="display:flex; justify-content:space-between; align-items:center;">
+        <h2 style="margin:0; color:var(--color-black);">ARCHIVED POSTS</h2>
+        <button id="close-bookmarks" class="hud-button" style="width:auto; padding:0.2rem 1rem;">X</button>
+      </div>
+      <div id="bookmarks-list" class="ui-body" style="display:block; overflow-y:auto;"></div>
+    </div>
+  </div>
+
+  <div id="teleport-flash" class="teleport-flash"></div>
+  <div id="transition-overlay" class="transition-overlay"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
