@@ -1,6 +1,7 @@
 // js/voxels.js
 import { state } from './state.js';
 import { sceneBg, solidMaterial, wireframeMaterial } from './scene.js';
+import { sectorStructures } from './structures.js';
 
 export const cubes = [];
 export const pillarGroups = [];
@@ -43,38 +44,40 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
     }
     const seededRandom = createPRNG(parsedSeed);
 
-    function buildVoxelPillar(stateType, sMat, wMat) {
+    // Factory passed to builders so custom structures perfectly track global ID states
+    const createVoxel = (vx, vy, vz, matS, matW) => {
+        const thisId = state.globalCubeIdCounter++;
+        if (harvestedCubeIds.includes(thisId)) return null;
+
+        const isWire = wireframeCubeIds.includes(thisId);
+        const voxel = new THREE.Mesh(voxelGeo, isWire ? matW : matS);
+        voxel.position.set(vx * vSize, vy * vSize, vz * vSize);
+        voxel.castShadow = true;
+        voxel.receiveShadow = true;
+        voxel.userData = { id: thisId, isWireframe: isWire, isStatic: true, sMat: matS, wMat: matW };
+        cubes.push(voxel);
+        return voxel;
+    };
+
+    function buildProceduralPillar(stateType, sMat, wMat) {
         const group = new THREE.Group();
         let maxHeight = 45;
         if (stateType === 'shattered-top') maxHeight = 28;
 
         for (let y = 0; y < maxHeight; y++) {
-            let isCapOrBase = false;
-            if (y < 2) isCapOrBase = true;
-            if (stateType !== 'shattered-top' && y > maxHeight - 3) isCapOrBase = true;
-
+            let isCapOrBase = (y < 2) || (stateType !== 'shattered-top' && y > maxHeight - 3);
             let limit = isCapOrBase ? 2 : 1;
+
             for (let x = -limit; x <= limit; x++) {
                 for (let z = -limit; z <= limit; z++) {
                     if (isCapOrBase && Math.abs(x) === 2 && Math.abs(z) === 2) continue;
                     if (!isCapOrBase && Math.abs(x) === 1 && Math.abs(z) === 1) continue;
-                    if (stateType === 'broken-left' && y >= 15 && y <= 25) { if (x < 0 && seededRandom() > 0.1) continue; if (x === 0 && seededRandom() > 0.5) continue; }
-                    if (stateType === 'broken-right' && y >= 15 && y <= 25) { if (x > 0 && seededRandom() > 0.1) continue; if (x === 0 && seededRandom() > 0.5) continue; }
-                    if (stateType === 'shattered-top' && y >= 20) { let destructChance = (y - 20) / (maxHeight - 20); if (seededRandom() < destructChance) continue; }
+                    if (stateType === 'broken-left' && y >= 15 && y <= 25 && ((x < 0 && seededRandom() > 0.1) || (x === 0 && seededRandom() > 0.5))) continue;
+                    if (stateType === 'broken-right' && y >= 15 && y <= 25 && ((x > 0 && seededRandom() > 0.1) || (x === 0 && seededRandom() > 0.5))) continue;
+                    if (stateType === 'shattered-top' && y >= 20 && seededRandom() < ((y - 20) / (maxHeight - 20))) continue;
 
-                    const thisId = state.globalCubeIdCounter++;
-                    if (harvestedCubeIds.includes(thisId)) continue;
-
-                    const isWire = wireframeCubeIds.includes(thisId);
-                    const voxel = new THREE.Mesh(voxelGeo, isWire ? wMat : sMat);
-
-                    voxel.position.set(x * vSize, y * vSize, z * vSize);
-                    voxel.castShadow = true;
-                    voxel.receiveShadow = true;
-                    voxel.userData = { id: thisId, isWireframe: isWire, isStatic: true, sMat: sMat, wMat: wMat };
-
-                    group.add(voxel);
-                    cubes.push(voxel);
+                    const v = createVoxel(x, y, z, sMat, wMat);
+                    if (v) group.add(v);
                 }
             }
         }
@@ -84,12 +87,29 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
     const corridorWidth = 14;
     const pillarYOffset = -10;
     const states = ['intact', 'broken-left', 'broken-right', 'shattered-top'];
+    const activeStructures = sectorStructures[state.currentSector] || [];
 
     sceneBg.fog = new THREE.Fog(0xe0e0e0, Math.min(20, panelWrapDistance * 0.12), Math.max(90, panelWrapDistance * 0.75));
 
     for (let i = 0; i < corridorDepthCount; i++) {
         const zPos = -(i * spacingZ);
+        const customStruct = activeStructures.find(s => s.zIndex === i);
 
+        // 1. INJECT CUSTOM STRUCTURES
+        if (customStruct) {
+            const localSMat = solidMaterial.clone(); localSMat.transparent = false;
+            const localWMat = wireframeMaterial.clone(); localWMat.transparent = true;
+
+            const pGroup = customStruct.builder(createVoxel, localSMat, localWMat);
+            pGroup.position.set(0, pillarYOffset, zPos);
+            pGroup.userData = { sMat: localSMat, wMat: localWMat };
+
+            sceneBg.add(pGroup);
+            pillarGroups.push(pGroup);
+            continue; // Skip procedural generation for this index
+        }
+
+        // 2. PROCEDURAL GENERATION BACKUP
         [-1, 1].forEach(sideMultiplier => {
             const xPos = (corridorWidth / 2) * sideMultiplier;
             const stateIndex = Math.min(Math.floor(seededRandom() * states.length), states.length - 1);
@@ -98,7 +118,7 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
             const localSMat = solidMaterial.clone(); localSMat.transparent = false;
             const localWMat = wireframeMaterial.clone(); localWMat.transparent = true;
 
-            const pGroup = buildVoxelPillar(stateType, localSMat, localWMat);
+            const pGroup = buildProceduralPillar(stateType, localSMat, localWMat);
             pGroup.position.set(xPos, pillarYOffset, zPos);
             pGroup.userData = { sMat: localSMat, wMat: localWMat };
             sceneBg.add(pGroup);
@@ -117,26 +137,21 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
                 const epicenterY = stateType === 'shattered-top' ? 10 : 5;
 
                 for (let j = 0; j < cubeCount; j++) {
-                    const thisId = state.globalCubeIdCounter++;
-                    if (harvestedCubeIds.includes(thisId)) continue;
+                    const v = createVoxel(0, 0, 0, debrisSMat, debrisWMat);
+                    if (v) {
+                        v.scale.setScalar(seededRandom() * 1.0 + 0.5);
+                        const scatterX = (seededRandom() - 0.5) * 4;
+                        const scatterY = (seededRandom() - 0.5) * 4;
+                        const scatterZ = (seededRandom() - 0.5) * 4;
 
-                    const isWire = wireframeCubeIds.includes(thisId);
-                    const cube = new THREE.Mesh(voxelGeo, isWire ? debrisWMat : debrisSMat);
+                        v.position.set(scatterX + (sideMultiplier * -2), scatterY + epicenterY, scatterZ);
+                        v.rotation.set(seededRandom() * Math.PI, seededRandom() * Math.PI, 0);
+                        v.userData.isStatic = false;
+                        v.userData.rotX = (seededRandom() - 0.5) * 0.04;
+                        v.userData.rotY = (seededRandom() - 0.5) * 0.04;
 
-                    cube.castShadow = true;
-                    cube.receiveShadow = true;
-                    cube.scale.setScalar(seededRandom() * 1.0 + 0.5);
-
-                    const scatterX = (seededRandom() - 0.5) * 4;
-                    const scatterY = (seededRandom() - 0.5) * 4;
-                    const scatterZ = (seededRandom() - 0.5) * 4;
-
-                    cube.position.set(scatterX + (sideMultiplier * -2), scatterY + epicenterY, scatterZ);
-                    cube.rotation.set(seededRandom() * Math.PI, seededRandom() * Math.PI, 0);
-                    cube.userData = { id: thisId, rotX: (seededRandom() - 0.5) * 0.04, rotY: (seededRandom() - 0.5) * 0.04, isWireframe: isWire, isStatic: false, sMat: debrisSMat, wMat: debrisWMat };
-
-                    debrisGroup.add(cube);
-                    cubes.push(cube);
+                        debrisGroup.add(v);
+                    }
                 }
                 debrisGroup.position.set(xPos, pillarYOffset, zPos);
             }
