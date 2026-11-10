@@ -6,7 +6,6 @@ import { initCursor, updateCursorBounds, cursorData, cursorTiltContainer, cursor
 import { initPanels, updateMaskScales, panelData, masks } from './panels.js';
 import { initVoxels, cubes, pillarGroups, debrisClusters, harvestingCubes, harvestedCubeIds, wireframeCubeIds, storageKeys } from './voxels.js';
 import { initUI, revealPage } from './ui.js';
-import { updateChunks, handleChunkRaycast } from './chunks.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     initScene();
@@ -42,12 +41,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (event.button !== 0 && event.button !== 2) return;
 
         raycaster.setFromCamera(state.mouse, camera);
-
-        // Check chunked instanced mesh raycasting first
-        if (event.button === 0) {
-            handleChunkRaycast(raycaster, camera, cubes, harvestingCubes);
-        }
-
         const intersects = raycaster.intersectObjects([...cubes, ...masks]);
 
         if (intersects.length > 0) {
@@ -99,9 +92,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         requestAnimationFrame(animate);
 
         camera.position.z += (state.targetCameraZ - camera.position.z) * 0.08;
-
-        // Update spatial chunks based on camera position
-        updateChunks(camera.position.z);
 
         if (cursorData.cursorPlaneWidth) {
             const pX = state.mouse.x * (cursorData.cursorPlaneWidth / 2);
