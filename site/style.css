@@ -9,7 +9,7 @@
     --color-cyan: #2ce6e6;
 }
 
-* {
+{
     cursor: none !important;
 }
 
@@ -80,7 +80,11 @@ h1, h2, h3 {
     border-bottom: 16px solid var(--color-black);
     padding: 2rem;
     padding-top: 2.75rem;
-    width: 420px;
+    width: fit-content;
+    min-width: 320px;
+    max-width: 40vw;
+    max-height: 75vh;
+    overflow-y: auto;
     position: absolute;
     top: 0; left: 0;
     transform-origin: center center;
@@ -88,6 +92,7 @@ h1, h2, h3 {
     will-change: transform, opacity;
     box-shadow: 15px 15px 0px var(--color-dark-grey);
     cursor: none !important;
+    backface-visibility: hidden;
 }
 
 .post-header {
@@ -322,3 +327,49 @@ cursor: none !important;
 .map-link { text-decoration: none; transition: color 0.1s ease, background-color 0.1s ease; cursor: none !important; }
 .map-link.map-text { color: var(--color-white); }
 .map-link.map-text:hover { color: var(--color-black); background-color: var(--color-white); }
+
+/* Custom Red Faux-3D Scrollbar */
+::-webkit-scrollbar { width: 14px; }
+::-webkit-scrollbar-track {
+    background: var(--color-black);
+    border-left: 2px solid var(--color-dark-grey);
+}
+::-webkit-scrollbar-thumb {
+    background: var(--color-red);
+    border: 2px solid;
+    border-color: #ff9999 #550000 #550000 #ff9999;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #ff3333;
+    border-color: #ffbbbb #770000 #770000 #ffbbbb;
+}
+
+/* Mobile Responsive Adjustments */
+@media (max-width: 768px) {
+    .ui-overlay {
+        padding: 1rem;
+        flex-direction: column;
+        justify-content: flex-start;
+    }
+    .ui-left { width: 100%; max-width: 100%; margin-bottom: 1rem; }
+    .ui-right {
+        height: auto;
+        position: fixed;
+        bottom: 1rem;
+        right: 1rem;
+        width: calc(100vw - 2rem);
+        align-items: center;
+        padding-bottom: 0;
+    }
+    .nav-stack {
+        flex-direction: row;
+        width: 100%;
+        justify-content: space-between;
+    }
+    .disconnected-shape {
+        width: 80vw;
+        max-width: 380px;
+        padding: 1.5rem;
+    }
+    .modal-content { width: 90%; }
+}

@@ -16,6 +16,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (!response.ok) throw new Error(`PocketBase denied access. Status: ${response.status}`);
         const data = await response.json();
+
+        // Force #Entry posts to the top
+        data.items.sort((a, b) => {
+            const aIsEntry = (a.hashtags || '').toLowerCase().includes('entry');
+            const bIsEntry = (b.hashtags || '').toLowerCase().includes('entry');
+            if (aIsEntry && !bIsEntry) return -1;
+            if (!aIsEntry && bIsEntry) return 1;
+            return 0;
+        });
+
         fetchedPostCount = Math.max(data.items.length, 1);
 
         for (const post of data.items) {
@@ -62,7 +72,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             `;
             postContainer.appendChild(div);
 
-            // Bind listener directly inside loop for accurate post.id closure binding
             const form = div.querySelector('.comment-form');
             form.addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -70,8 +79,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const textInput = form.querySelector('.comment-textarea');
 
                 const payload = {
-                    post: post.id, // Explicit PocketBase record ID (e.g. "abc123xyz")
-                author: authorInput.value.trim(),
+                    post: post.id,
+                    author: authorInput.value.trim(),
                                   text: textInput.value.trim()
                 };
 
@@ -150,7 +159,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     camera.position.z = 10;
     sceneBg.add(camera);
 
-    sceneBg.fog = new THREE.Fog(0xe0e0e0, 20, 90);
+    const panelSpacing = 80;
+    const htmlPanels = document.querySelectorAll('.disconnected-shape:not(.ui-box)');
+    const panelWrapDistance = Math.max(htmlPanels.length * panelSpacing, 80);
+    const spacingZ = 20;
+    const corridorDepthCount = panelWrapDistance / spacingZ;
+    const totalCorridorSpan = corridorDepthCount * spacingZ;
+
+    sceneBg.fog = new THREE.Fog(0xe0e0e0, Math.min(20, panelWrapDistance * 0.12), Math.max(90, panelWrapDistance * 0.75));
     sceneBg.add(new THREE.AmbientLight(0x050505));
 
     const mouseLightBg = new THREE.PointLight(0x66ffff, 50, 40, 2);
@@ -288,7 +304,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let globalCubeIdCounter = 0;
 
-    function buildVoxelPillar(state) {
+    function buildVoxelPillar(state, sMat, wMat) {
         const group = new THREE.Group();
         let maxHeight = 45;
         if (state === 'shattered-top') maxHeight = 28;
@@ -321,12 +337,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (harvestedCubeIds.includes(thisId)) continue;
 
                     const isWire = wireframeCubeIds.includes(thisId);
-                    const voxel = new THREE.Mesh(voxelGeo, isWire ? wireframeMaterial : solidMaterial);
+                    const voxel = new THREE.Mesh(voxelGeo, isWire ? wMat : sMat);
 
                     voxel.position.set(x * vSize, y * vSize, z * vSize);
                     voxel.castShadow = true;
                     voxel.receiveShadow = true;
-                    voxel.userData = { id: thisId, isWireframe: isWire, isStatic: true };
+                    voxel.userData = { id: thisId, isWireframe: isWire, isStatic: true, sMat: sMat, wMat: wMat };
 
                     group.add(voxel);
                     cubes.push(voxel);
@@ -336,9 +352,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         return group;
     }
 
-    const panelSpacing = 80;
-    const corridorDepthCount = Math.max(fetchedPostCount * 2, 6);
-    const spacingZ = 20;
     const corridorWidth = 14;
     const pillarYOffset = -10;
     const states = ['intact', 'broken-left', 'broken-right', 'shattered-top'];
@@ -351,8 +364,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             const stateIndex = Math.min(Math.floor(seededRandom() * states.length), states.length - 1);
             const state = states[stateIndex] || 'intact';
 
-            const pGroup = buildVoxelPillar(state);
+            const localSMat = solidMaterial.clone(); localSMat.transparent = false;
+            const localWMat = wireframeMaterial.clone(); localWMat.transparent = true;
+
+            const pGroup = buildVoxelPillar(state, localSMat, localWMat);
             pGroup.position.set(xPos, pillarYOffset, zPos);
+            pGroup.userData = { sMat: localSMat, wMat: localWMat };
             sceneBg.add(pGroup);
             pillarGroups.push(pGroup);
 
@@ -360,6 +377,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const debrisGroup = new THREE.Group();
                 sceneBg.add(debrisGroup);
                 debrisClusters.push(debrisGroup);
+
+                const debrisSMat = solidMaterial.clone(); debrisSMat.transparent = false;
+                const debrisWMat = wireframeMaterial.clone(); debrisWMat.transparent = true;
+                debrisGroup.userData = { sMat: debrisSMat, wMat: debrisWMat };
 
                 const cubeCount = Math.floor(seededRandom() * 5) + 2;
                 const epicenterY = state === 'shattered-top' ? 10 : 5;
@@ -369,7 +390,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (harvestedCubeIds.includes(thisId)) continue;
 
                     const isWire = wireframeCubeIds.includes(thisId);
-                    const cube = new THREE.Mesh(voxelGeo, isWire ? wireframeMaterial : solidMaterial);
+                    const cube = new THREE.Mesh(voxelGeo, isWire ? debrisWMat : debrisSMat);
 
                     cube.castShadow = true;
                     cube.receiveShadow = true;
@@ -384,7 +405,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     cube.position.set(scatterX + inwardForce, scatterY + epicenterY, scatterZ);
                     cube.rotation.set(seededRandom() * Math.PI, seededRandom() * Math.PI, 0);
 
-                    cube.userData = { id: thisId, rotX: (seededRandom() - 0.5) * 0.04, rotY: (seededRandom() - 0.5) * 0.04, isWireframe: isWire, isStatic: false };
+                    cube.userData = { id: thisId, rotX: (seededRandom() - 0.5) * 0.04, rotY: (seededRandom() - 0.5) * 0.04, isWireframe: isWire, isStatic: false, sMat: debrisSMat, wMat: debrisWMat };
                     debrisGroup.add(cube);
                     cubes.push(cube);
                 }
@@ -395,9 +416,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (cubeCountDisplayEl) cubeCountDisplayEl.textContent = `CUBE COUNT: ${collectedCubes}/${globalCubeIdCounter}`;
 
-    const htmlPanels = document.querySelectorAll('.disconnected-shape:not(.ui-box)');
-    const panelWrapDistance = Math.max(htmlPanels.length * panelSpacing, 80);
-
     let savedBookmarks = [];
     try { savedBookmarks = JSON.parse(localStorage.getItem('megastructure_bookmarks')) || []; } catch(e) {}
 
@@ -406,7 +424,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const panelData = Array.from(htmlPanels).map((el, i) => {
         const zDepth = -(i * panelSpacing) - (panelSpacing / 2);
-        const xOffset = i % 2 === 0 ? -1.5 : 1.5;
+        const xOffset = 0;
 
         const maskMesh = new THREE.Mesh(maskGeo, maskMaterial);
         maskMesh.renderOrder = -999;
@@ -422,6 +440,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         return { el: el, pos: new THREE.Vector3(xOffset, 2, zDepth), maskMesh: maskMesh, isBookmarked: isArchived };
     });
 
+    if (panelData.length > 0) {
+        targetCameraZ = panelData[0].pos.z + 12;
+        camera.position.z = targetCameraZ;
+    }
+
     function updateMaskScales() {
         const vFov = (camera.fov * Math.PI) / 180;
         const visibleHeightAt10 = 2 * Math.tan(vFov / 2) * 10;
@@ -436,6 +459,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             panel.maskMesh.scale.set(mWidth, mHeight, 1);
         });
     }
+
+    const resizeObserver = new ResizeObserver(() => updateMaskScales());
+    panelData.forEach(panel => resizeObserver.observe(panel.el));
 
     panelData.forEach(panel => {
         const btn = panel.el.querySelector('.bookmark-btn');
@@ -583,6 +609,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         if (matchedPanelData) {
                             matchedPanelData.isBookmarked = false;
                             matchedPanelData.maskMesh.visible = true;
+                            updateMaskScales();
                         }
                     }
 
@@ -593,13 +620,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     const scrollSensitivity = 0.05;
-    window.addEventListener('wheel', (event) => { targetCameraZ -= event.deltaY * scrollSensitivity; }, { passive: false });
+    window.addEventListener('wheel', (event) => {
+        const shape = event.target.closest('.disconnected-shape');
+        if (shape) {
+            const currentOpacity = parseFloat(shape.style.opacity || '1');
+            if (currentOpacity < 0.5) {
+                return;
+            }
+            return; // Scroll the post and ensure it does not move the camera while scrolling on a post
+        }
+        if (event.target.closest('.ui-body, .modal-content')) return;
+
+        targetCameraZ -= event.deltaY * scrollSensitivity;
+    }, { passive: false });
 
     let touchStartY = 0;
-    window.addEventListener('touchstart', (event) => { touchStartY = event.touches[0].clientY; }, { passive: false });
+    window.addEventListener('touchstart', (event) => {
+        if (event.target.closest('.ui-body, .modal-content')) return;
+        touchStartY = event.touches[0].clientY;
+    }, { passive: false });
+
     window.addEventListener('touchmove', (event) => {
+        const shape = event.target.closest('.disconnected-shape');
         const touchY = event.touches[0].clientY;
-        targetCameraZ -= (touchStartY - touchY) * (scrollSensitivity * 0.5);
+        const deltaY = touchStartY - touchY;
+
+        if (shape) {
+            const currentOpacity = parseFloat(shape.style.opacity || '1');
+            if (currentOpacity < 0.5) {
+                return;
+            }
+            touchStartY = touchY;
+            return; // Scroll the post and ensure it does not move the camera while scrolling on a post
+        }
+        if (event.target.closest('.ui-body, .modal-content')) return;
+
+        targetCameraZ -= deltaY * (scrollSensitivity * 0.5);
         touchStartY = touchY;
     }, { passive: false });
 
@@ -637,267 +693,286 @@ document.addEventListener('DOMContentLoaded', async () => {
     const mouse = new THREE.Vector2();
 
     window.addEventListener('contextmenu', (event) => { event.preventDefault(); });
-    window.addEventListener('mousedown', (event) => { if (event.button === 0 || event.button === 2) targetTiltX = clickTiltX; });
-    window.addEventListener('mouseup', (event) => {
-        if (event.button === 0 || event.button === 2) targetTiltX = idleTiltX;
-        if (event.target.closest('.hud-button') || event.target.closest('.ui-left') || event.target.closest('.disconnected-shape') || event.target.closest('.modal-overlay')) return;
-        if (event.button !== 0 && event.button !== 2) return;
-
-        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-        raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObjects([...cubes, ...masks]);
-
-        if (intersects.length > 0) {
-            const hitObject = intersects[0].object;
-            if (masks.includes(hitObject)) return;
-
-            if (event.button === 2) {
-                hitObject.userData.isWireframe = !hitObject.userData.isWireframe;
-                hitObject.material = hitObject.userData.isWireframe ? wireframeMaterial : solidMaterial;
-                const id = hitObject.userData.id;
-                if (hitObject.userData.isWireframe) { if (!wireframeCubeIds.includes(id)) wireframeCubeIds.push(id); } else { wireframeCubeIds = wireframeCubeIds.filter(item => item !== id); }
-                localStorage.setItem(storageWireKey, JSON.stringify(wireframeCubeIds));
-            }
-            else if (event.button === 0) {
-                const index = cubes.indexOf(hitObject);
-                if (index > -1) cubes.splice(index, 1);
-                const id = hitObject.userData.id;
-                if (!harvestedCubeIds.includes(id)) { harvestedCubeIds.push(id); localStorage.setItem(storageHarvestKey, JSON.stringify(harvestedCubeIds)); }
-
-                let targetLocalPos = new THREE.Vector3(0, 0, -4.0);
-                if (cubeCountDisplayEl) {
-                    const rect = cubeCountDisplayEl.getBoundingClientRect();
-                    const targetScreenX = rect.left + rect.width / 2;
-                    const targetScreenY = rect.top + rect.height / 2;
-                    const ndcX = (targetScreenX / window.innerWidth) * 2 - 1;
-                    const ndcY = -(targetScreenY / window.innerHeight) * 2 + 1;
-                    const targetZ = -4.0;
-                    const vFov = (camera.fov * Math.PI) / 180;
-                    const heightAtZ = 2 * Math.tan(vFov / 2) * Math.abs(targetZ);
-                    const widthAtZ = heightAtZ * camera.aspect;
-                    targetLocalPos.set(ndcX * (widthAtZ / 2), ndcY * (heightAtZ / 2), targetZ);
-                }
-
-                const worldPos = new THREE.Vector3();
-                hitObject.getWorldPosition(worldPos);
-                hitObject.parent.remove(hitObject);
-                camera.add(hitObject);
-                camera.worldToLocal(worldPos);
-                hitObject.position.copy(worldPos);
-                hitObject.userData.targetPos = targetLocalPos;
-                harvestingCubes.push(hitObject);
-            }
-        }
+    window.addEventListener('mousedown', (event) => {
+        if (event.button === 0 || event.button === 2) targetTiltX = clickTiltX;
     });
+        window.addEventListener('mouseup', (event) => {
+            if (event.button === 0 || event.button === 2) targetTiltX = idleTiltX;
 
-    const inventoryToggle = document.getElementById('inventory-toggle');
-    const inventoryBody = document.getElementById('inventory-body');
+            if (event.target.closest('.hud-button') || event.target.closest('.ui-left') || event.target.closest('.disconnected-shape') || event.target.closest('.modal-overlay')) return;
+            if (event.button !== 0 && event.button !== 2) return;
 
-    if (inventoryToggle && inventoryBody) {
-        const inventoryText = inventoryToggle.querySelector('.ascii-plant');
-        inventoryToggle.addEventListener('click', (event) => {
-            event.stopPropagation();
-            inventoryBody.classList.toggle('collapsed');
-            inventoryToggle.classList.toggle('collapsed');
-            if (inventoryText) inventoryText.textContent = inventoryBody.classList.contains('collapsed') ? 'INVENTORY >' : 'INVENTORY \\/';
-        });
-    }
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
-    function renderMap() {
-        const mapContainer = document.getElementById('ascii-map');
-        if (!mapContainer) return;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects([...cubes, ...masks]);
 
-        const current = currentSector;
-        const connections = {
-            'home': ['development', 'news'],
-            'development': ['home'],
-            'news': ['home', 'hedonism'],
-            'hedonism': ['news']
-        };
+            if (intersects.length > 0) {
+                const hitObject = intersects[0].object;
+                if (masks.includes(hitObject)) return;
 
-        const allSectors = [
-            { id: 'development', label: 'DEVELOPMENT', url: 'development' },
-            { id: 'home', label: 'HOME_PAGE', url: 'home' },
-            { id: 'news', label: 'NEWS_LOG', url: 'news' },
-            { id: 'hedonism', label: 'HEDONISM', url: 'hedonism' }
-        ];
-
-        const allowed = connections[current] || [];
-        const visibleSectors = allSectors.filter(s => s.id === current || allowed.includes(s.id));
-
-        let html = `<span class="ascii-deco">+- SECTOR MAP ---------+</span>\n`;
-        visibleSectors.forEach(s => {
-            const isCurrent = s.id === current;
-            const mark = isCurrent ? '<span class="mention">[*]</span>' : '[ ]';
-            html += `<span class="ascii-deco">|</span> ${mark} <span class="map-link map-text" data-target="${s.url}">${s.label.padEnd(12, ' ')}</span> <span class="ascii-deco">|</span>\n`;
-        });
-        html += `<span class="ascii-deco">+----------------------+</span>`;
-
-        mapContainer.innerHTML = html;
-
-        document.querySelectorAll('.map-link').forEach(el => {
-            el.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const targetSector = e.target.dataset.target;
-                if (targetSector !== currentSector) {
-                    triggerPixelDissolve(`index.html?sector=${targetSector}`);
+                if (event.button === 2) {
+                    hitObject.userData.isWireframe = !hitObject.userData.isWireframe;
+                    hitObject.material = hitObject.userData.isWireframe ? (hitObject.userData.wMat || wireframeMaterial) : (hitObject.userData.sMat || solidMaterial);
+                    const id = hitObject.userData.id;
+                    if (hitObject.userData.isWireframe) { if (!wireframeCubeIds.includes(id)) wireframeCubeIds.push(id); } else { wireframeCubeIds = wireframeCubeIds.filter(item => item !== id); }
+                    localStorage.setItem(storageWireKey, JSON.stringify(wireframeCubeIds));
                 }
-            });
+                else if (event.button === 0) {
+                    const index = cubes.indexOf(hitObject);
+                    if (index > -1) cubes.splice(index, 1);
+                    const id = hitObject.userData.id;
+                    if (!harvestedCubeIds.includes(id)) { harvestedCubeIds.push(id); localStorage.setItem(storageHarvestKey, JSON.stringify(harvestedCubeIds)); }
+
+                    hitObject.material = hitObject.userData.isWireframe ? wireframeMaterial : solidMaterial;
+
+                    let targetLocalPos = new THREE.Vector3(0, 0, -4.0);
+                    if (cubeCountDisplayEl) {
+                        const rect = cubeCountDisplayEl.getBoundingClientRect();
+                        const targetScreenX = rect.left + rect.width / 2;
+                        const targetScreenY = rect.top + rect.height / 2;
+                        const ndcX = (targetScreenX / window.innerWidth) * 2 - 1;
+                        const ndcY = -(targetScreenY / window.innerHeight) * 2 + 1;
+                        const targetZ = -4.0;
+                        const vFov = (camera.fov * Math.PI) / 180;
+                        const heightAtZ = 2 * Math.tan(vFov / 2) * Math.abs(targetZ);
+                        const widthAtZ = heightAtZ * camera.aspect;
+                        targetLocalPos.set(ndcX * (widthAtZ / 2), ndcY * (heightAtZ / 2), targetZ);
+                    }
+
+                    const worldPos = new THREE.Vector3();
+                    hitObject.getWorldPosition(worldPos);
+                    hitObject.parent.remove(hitObject);
+                    camera.add(hitObject);
+                    camera.worldToLocal(worldPos);
+                    hitObject.position.copy(worldPos);
+                    hitObject.userData.targetPos = targetLocalPos;
+                    harvestingCubes.push(hitObject);
+                }
+            }
         });
-    }
 
-    let transitionOverlay = document.getElementById('transition-overlay');
-    if (!transitionOverlay) {
-        transitionOverlay = document.createElement('div');
-        transitionOverlay.id = 'transition-overlay';
-        transitionOverlay.className = 'transition-overlay';
-        document.body.appendChild(transitionOverlay);
-    }
+        window.addEventListener('mouseleave', () => {});
 
-    const cols = 20; const rows = 15;
-    for(let i = 0; i < cols * rows; i++) {
-        const block = document.createElement('div');
-        block.className = 'pixel-block active';
-        transitionOverlay.appendChild(block);
-    }
+        const inventoryToggle = document.getElementById('inventory-toggle');
+        const inventoryBody = document.getElementById('inventory-body');
 
-    function triggerPixelDissolve(targetUrl) {
+        if (inventoryToggle && inventoryBody) {
+            const inventoryText = inventoryToggle.querySelector('.ascii-plant');
+            inventoryToggle.addEventListener('click', (event) => {
+                event.stopPropagation();
+                inventoryBody.classList.toggle('collapsed');
+                inventoryToggle.classList.toggle('collapsed');
+                if (inventoryText) inventoryText.textContent = inventoryBody.classList.contains('collapsed') ? 'INVENTORY >' : 'INVENTORY \/';
+            });
+        }
+
+        function renderMap() {
+            const mapContainer = document.getElementById('ascii-map');
+            if (!mapContainer) return;
+
+            const current = currentSector;
+            const connections = {
+                'home': ['development', 'news'],
+                'development': ['home'],
+                'news': ['home', 'hedonism'],
+                'hedonism': ['news']
+            };
+
+            const allSectors = [
+                { id: 'development', label: 'DEVELOPMENT', url: 'development' },
+                { id: 'home', label: 'HOME_PAGE', url: 'home' },
+                { id: 'news', label: 'NEWS_LOG', url: 'news' },
+                { id: 'hedonism', label: 'HEDONISM', url: 'hedonism' }
+            ];
+
+            const allowed = connections[current] || [];
+            const visibleSectors = allSectors.filter(s => s.id === current || allowed.includes(s.id));
+
+            let html = `<span class="ascii-deco">+- SECTOR MAP ---------+</span>\n`;
+            visibleSectors.forEach(s => {
+                const isCurrent = s.id === current;
+                const mark = isCurrent ? '<span class="mention">[*]</span>' : '[ ]';
+                html += `<span class="ascii-deco">|</span> ${mark} <span class="map-link map-text" data-target="${s.url}">${s.label.padEnd(12, ' ')}</span> <span class="ascii-deco">|</span>\n`;
+            });
+            html += `<span class="ascii-deco">+----------------------+</span>`;
+
+            mapContainer.innerHTML = html;
+
+            document.querySelectorAll('.map-link').forEach(el => {
+                el.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const targetSector = e.target.dataset.target;
+                    if (targetSector !== currentSector) {
+                        triggerPixelDissolve(`index.html?sector=${targetSector}`);
+                    }
+                });
+            });
+        }
+
+        let transitionOverlay = document.getElementById('transition-overlay');
+        if (!transitionOverlay) {
+            transitionOverlay = document.createElement('div');
+            transitionOverlay.id = 'transition-overlay';
+            transitionOverlay.className = 'transition-overlay';
+            document.body.appendChild(transitionOverlay);
+        }
+
+        const cols = 20; const rows = 15;
+        for(let i = 0; i < cols * rows; i++) {
+            const block = document.createElement('div');
+            block.className = 'pixel-block active';
+            transitionOverlay.appendChild(block);
+        }
+
+        function triggerPixelDissolve(targetUrl) {
+            const blocks = document.querySelectorAll('.pixel-block');
+            if (transitionOverlay) transitionOverlay.classList.add('blocking');
+
+            blocks.forEach((block, i) => {
+                const x = i % cols;
+                const delay = (x * 0.05) + (Math.random() * 0.1);
+                block.style.transitionDelay = `${delay}s`;
+                block.classList.add('active');
+            });
+
+            setTimeout(() => { window.location.href = targetUrl; }, 1500);
+        }
+
+        updateMaskScales();
+        updateCursorBounds();
+        renderMap();
+
         const blocks = document.querySelectorAll('.pixel-block');
-        if (transitionOverlay) transitionOverlay.classList.add('blocking');
+        setTimeout(() => {
+            if (transitionOverlay) transitionOverlay.classList.add('blocking');
+            blocks.forEach((block, i) => {
+                const x = i % cols;
+                const delay = ((cols - x) * 0.05) + (Math.random() * 0.1);
+                block.style.transitionDelay = `${delay}s`;
+                block.classList.remove('active');
+            });
+            setTimeout(() => { if (transitionOverlay) transitionOverlay.classList.remove('blocking'); }, 1500);
+        }, 50);
 
-        blocks.forEach((block, i) => {
-            const x = i % cols;
-            const delay = (x * 0.05) + (Math.random() * 0.1);
-            block.style.transitionDelay = `${delay}s`;
-            block.classList.add('active');
+        let targetVelocity = { x: 0, y: 0 };
+        let currentVelocity = { x: 0, y: 0 };
+        let lastClientX = null;
+        let lastClientY = null;
+
+        document.addEventListener('mousemove', (event) => {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            if (lastClientX !== null) { targetVelocity.x = event.clientX - lastClientX; targetVelocity.y = event.clientY - lastClientY; }
+            lastClientX = event.clientX; lastClientY = event.clientY;
         });
 
-        setTimeout(() => { window.location.href = targetUrl; }, 1500);
-    }
+        function animate() {
+            requestAnimationFrame(animate);
 
-    updateMaskScales();
-    updateCursorBounds();
-    renderMap();
+            camera.position.z += (targetCameraZ - camera.position.z) * 0.08;
 
-    const blocks = document.querySelectorAll('.pixel-block');
-    setTimeout(() => {
-        if (transitionOverlay) transitionOverlay.classList.add('blocking');
-        blocks.forEach((block, i) => {
-            const x = i % cols;
-            const delay = ((cols - x) * 0.05) + (Math.random() * 0.1);
-            block.style.transitionDelay = `${delay}s`;
-            block.classList.remove('active');
-        });
-        setTimeout(() => { if (transitionOverlay) transitionOverlay.classList.remove('blocking'); }, 1500);
-    }, 50);
+            if (cursorPlaneWidth) {
+                const pX = mouse.x * (cursorPlaneWidth / 2);
+                const pY = mouse.y * (cursorPlaneHeight / 2);
+                mouseLightBg.position.set(pX, pY, cursorZ);
+                mouseLightFg.position.set(pX, pY, cursorZ);
+            }
 
-    let targetVelocity = { x: 0, y: 0 };
-    let currentVelocity = { x: 0, y: 0 };
-    let lastClientX = null;
-    let lastClientY = null;
+            targetVelocity.x *= 0.85; targetVelocity.y *= 0.85;
+            currentVelocity.x += (targetVelocity.x - currentVelocity.x) * 0.15;
+            currentVelocity.y += (targetVelocity.y - currentVelocity.y) * 0.15;
 
-    document.addEventListener('mousemove', (event) => {
-        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-        if (lastClientX !== null) { targetVelocity.x = event.clientX - lastClientX; targetVelocity.y = event.clientY - lastClientY; }
-        lastClientX = event.clientX; lastClientY = event.clientY;
-    });
+            cursorTiltContainer.rotation.x += (targetTiltX - cursorTiltContainer.rotation.x) * 0.3;
+            cursorSpinGroup.rotation.y -= 0.02;
 
-    function animate() {
-        requestAnimationFrame(animate);
-
-        camera.position.z += (targetCameraZ - camera.position.z) * 0.035;
-
-        if (cursorPlaneWidth) {
-            const pX = mouse.x * (cursorPlaneWidth / 2);
-            const pY = mouse.y * (cursorPlaneHeight / 2);
-            mouseLightBg.position.set(pX, pY, cursorZ);
-            mouseLightFg.position.set(pX, pY, cursorZ);
-        }
-
-        targetVelocity.x *= 0.90; targetVelocity.y *= 0.90;
-        currentVelocity.x += (targetVelocity.x - currentVelocity.x) * 0.1; currentVelocity.y += (targetVelocity.y - currentVelocity.y) * 0.1;
-        cursorTiltContainer.rotation.x += (targetTiltX - cursorTiltContainer.rotation.x) * 0.3;
-        cursorSpinGroup.rotation.y -= 0.02;
-
-        for (let i = harvestingCubes.length - 1; i >= 0; i--) {
-            const cube = harvestingCubes[i];
-            cube.position.lerp(cube.userData.targetPos, 0.15);
-            cube.scale.multiplyScalar(0.85); cube.rotation.x += 0.3; cube.rotation.y += 0.3;
-            if (cube.scale.x < 0.02) {
-                camera.remove(cube); harvestingCubes.splice(i, 1);
-                collectedCubes = harvestedCubeIds.length;
-                if (cubeCountDisplayEl) {
-                    cubeCountDisplayEl.textContent = `CUBE COUNT: ${collectedCubes}/${globalCubeIdCounter}`;
-                    cubeCountDisplayEl.style.transform = 'scale(1.2)'; cubeCountDisplayEl.style.color = 'var(--color-cyan)';
-                    setTimeout(() => { if (cubeCountDisplayEl) { cubeCountDisplayEl.style.transform = 'scale(1)'; cubeCountDisplayEl.style.color = 'var(--color-dark-grey)'; } }, 150);
+            for (let i = harvestingCubes.length - 1; i >= 0; i--) {
+                const cube = harvestingCubes[i];
+                cube.position.lerp(cube.userData.targetPos, 0.15);
+                cube.scale.multiplyScalar(0.85); cube.rotation.x += 0.3; cube.rotation.y += 0.3;
+                if (cube.scale.x < 0.02) {
+                    camera.remove(cube); harvestingCubes.splice(i, 1);
+                    collectedCubes = harvestedCubeIds.length;
+                    if (cubeCountDisplayEl) {
+                        cubeCountDisplayEl.textContent = `CUBE COUNT: ${collectedCubes}/${globalCubeIdCounter}`;
+                        cubeCountDisplayEl.style.transform = 'scale(1.2)'; cubeCountDisplayEl.style.color = 'var(--color-cyan)';
+                        setTimeout(() => { if (cubeCountDisplayEl) { cubeCountDisplayEl.style.transform = 'scale(1)'; cubeCountDisplayEl.style.color = 'var(--color-dark-grey)'; } }, 150);
+                    }
                 }
             }
-        }
 
-        pillarGroups.forEach(group => {
-            const wrapDistance = corridorDepthCount * spacingZ;
-            if (group.position.z > camera.position.z + 25) group.position.z -= wrapDistance;
-            else if (group.position.z < camera.position.z - wrapDistance + 25) group.position.z += wrapDistance;
-        });
+            const maxVisibleDist = Math.min(140, panelWrapDistance - 25);
 
-            debrisClusters.forEach(group => {
-                const wrapDistance = corridorDepthCount * spacingZ;
-                if (group.position.z > camera.position.z + 25) group.position.z -= wrapDistance;
-                else if (group.position.z < camera.position.z - wrapDistance + 25) group.position.z += wrapDistance;
+            // 1. Pillar Groups: Wrapping only, NO fading
+            pillarGroups.forEach(group => {
+                if (group.position.z > camera.position.z + 25) group.position.z -= panelWrapDistance;
+                else if (group.position.z < camera.position.z - panelWrapDistance + 25) group.position.z += panelWrapDistance;
             });
 
-                panelData.forEach(panel => {
-                    if (panel.isBookmarked) return;
-
-                    if (panel.pos.z > camera.position.z + 25) panel.pos.z -= panelWrapDistance;
-                    else if (panel.pos.z < camera.position.z - panelWrapDistance + 25) panel.pos.z += panelWrapDistance;
-
-                    if (panel.el.dataset.filtered === 'true') {
-                        panel.el.style.opacity = 0; panel.el.style.pointerEvents = 'none'; panel.maskMesh.visible = false;
-                        return;
-                    }
-
-                    const vec = panel.pos.clone();
-                    const dist = camera.position.z - vec.z;
-
-                    if (dist < 2) {
-                        panel.el.style.opacity = 0; panel.el.style.pointerEvents = 'none'; panel.maskMesh.visible = false;
-                        return;
-                    }
-
-                    vec.project(camera);
-                    const x = (vec.x * 0.5 + 0.5) * window.innerWidth;
-                    const y = -(vec.y * 0.5 - 0.5) * window.innerHeight;
-                    const scale = 10 / dist;
-
-                    let opacity = 1;
-                    if (dist > 90) opacity = 0;
-                    else if (dist > 60) opacity = (90 - dist) / 30;
-                    else if (dist < 10) opacity = Math.max(0, (dist - 2) / 8);
-
-                    panel.maskMesh.position.copy(panel.pos);
-                    panel.maskMesh.position.z += 0.5;
-                    panel.maskMesh.visible = (opacity > 0.01);
-
-                    panel.el.style.zIndex = Math.floor(1000 - dist);
-                    panel.el.style.transform = `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), 0) scale(${scale})`;
-                    panel.el.style.opacity = opacity;
-                    panel.el.style.pointerEvents = (opacity > 0.5 && scale < 1.5) ? 'auto' : 'none';
+                // 2. Debris Clusters: Wrapping only, NO fading
+                debrisClusters.forEach(group => {
+                    if (group.position.z > camera.position.z + 25) group.position.z -= panelWrapDistance;
+                    else if (group.position.z < camera.position.z - panelWrapDistance + 25) group.position.z += panelWrapDistance;
                 });
 
-                cubes.forEach((cube) => {
-                    if (!cube.userData.isStatic) {
-                        cube.rotation.x += cube.userData.rotX + (currentVelocity.y * 0.003);
-                        cube.rotation.y += cube.userData.rotY + (currentVelocity.x * 0.003);
-                    }
-                });
+                    // 3. HTML Posts: Maintain closer fade-out threshold and pointer events lock below 50% opacity
+                    panelData.forEach(panel => {
+                        if (panel.isBookmarked) return;
 
-                rendererBg.render(sceneBg, camera);
-                rendererFg.render(sceneFg, cameraFg);
-    }
+                        if (panel.pos.z > camera.position.z + 25) panel.pos.z -= panelWrapDistance;
+                        else if (panel.pos.z < camera.position.z - panelWrapDistance + 25) panel.pos.z += panelWrapDistance;
 
-    animate();
+                        if (panel.el.dataset.filtered === 'true') {
+                            panel.el.style.opacity = 0; panel.el.style.pointerEvents = 'none'; panel.maskMesh.visible = false;
+                            return;
+                        }
+
+                        const vec = panel.pos.clone();
+                        const dist = camera.position.z - vec.z;
+
+                        if (dist < -15 || dist > maxVisibleDist) {
+                            panel.el.style.opacity = 0;
+                            panel.el.style.pointerEvents = 'none';
+                            panel.maskMesh.visible = false;
+                            return;
+                        }
+
+                        vec.project(camera);
+                        const x = (vec.x * 0.5 + 0.5) * window.innerWidth;
+                        const y = -(vec.y * 0.5 - 0.5) * window.innerHeight;
+                        const scale = 10 / Math.max(dist, 0.1);
+
+                        let opacity = 1;
+
+                        if (dist < 8) {
+                            opacity = Math.max(0, (dist - 2) / 6);
+                        } else if (dist > maxVisibleDist - 50) {
+                            opacity = Math.max(0, (maxVisibleDist - dist) / 50);
+                        }
+
+                        panel.maskMesh.position.copy(panel.pos);
+                        panel.maskMesh.position.z += 0.5;
+                        panel.maskMesh.visible = (opacity > 0.05);
+
+                        panel.el.style.zIndex = Math.floor(1000 - dist);
+                        panel.el.style.transition = 'none';
+                        panel.el.style.transform = `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), 0) scale(${scale})`;
+                        panel.el.style.opacity = opacity;
+
+                        panel.el.style.pointerEvents = (opacity >= 0.5) ? 'auto' : 'none';
+                    });
+
+                    cubes.forEach((cube) => {
+                        if (!cube.userData.isStatic) {
+                            cube.rotation.x += cube.userData.rotX + (currentVelocity.y * 0.003);
+                            cube.rotation.y += cube.userData.rotY + (currentVelocity.x * 0.003);
+                        }
+                    });
+
+                    rendererBg.render(sceneBg, camera);
+                    rendererFg.render(sceneFg, cameraFg);
+        }
+
+        animate();
 });
