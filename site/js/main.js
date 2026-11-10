@@ -1,16 +1,18 @@
+// js/main.js
 import { state } from './state.js';
 import { initScene, sceneBg, sceneFg, rendererBg, rendererFg, camera, cameraFg, mouseLightBg, mouseLightFg, solidMaterial, wireframeMaterial } from './scene.js';
 import { fetchPostsAndComments } from './pocketbase.js';
 import { initCursor, updateCursorBounds, cursorData, cursorTiltContainer, cursorSpinGroup } from './cursor.js';
 import { initPanels, updateMaskScales, panelData, masks } from './panels.js';
 import { initVoxels, cubes, pillarGroups, debrisClusters, harvestingCubes, harvestedCubeIds, wireframeCubeIds, storageKeys } from './voxels.js';
-import { initUI } from './ui.js';
+import { initUI, revealPage } from './ui.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     initScene();
     initCursor();
     initUI();
 
+    // Hold reveal until network request completes
     await fetchPostsAndComments(state.currentSector);
 
     initPanels();
@@ -184,4 +186,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     animate();
+
+    // Reveal page after render loop starts
+    requestAnimationFrame(() => {
+        revealPage();
+    });
 });

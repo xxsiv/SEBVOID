@@ -8,25 +8,17 @@ const rows = 15;
 export function initUI() {
     document.body.dataset.node = state.currentSector;
 
-    // 1. Initial Loading Screen Removal
-    const loadingScreen = document.getElementById('loading-screen');
-    if (loadingScreen) {
-        setTimeout(() => {
-            loadingScreen.classList.add('hidden');
-            setTimeout(() => loadingScreen.remove(), 800);
-        }, 200);
-    }
-
-    // 2. Setup Pixel Dissolve Overlay & Run Load Animation (Reveal Page)
+    // Create and hold transition overlay in blocking state during load
     let transitionOverlay = document.getElementById('transition-overlay');
     if (!transitionOverlay) {
         transitionOverlay = document.createElement('div');
         transitionOverlay.id = 'transition-overlay';
-        transitionOverlay.className = 'transition-overlay';
+        transitionOverlay.className = 'transition-overlay blocking';
         document.body.appendChild(transitionOverlay);
+    } else {
+        transitionOverlay.classList.add('blocking');
     }
 
-    // Build grid of pixel blocks if empty
     if (transitionOverlay.children.length === 0) {
         for (let i = 0; i < cols * rows; i++) {
             const block = document.createElement('div');
@@ -35,22 +27,6 @@ export function initUI() {
         }
     }
 
-    // Animate pixels OUT on page entry
-    const blocks = transitionOverlay.querySelectorAll('.pixel-block');
-    setTimeout(() => {
-        if (transitionOverlay) transitionOverlay.classList.add('blocking');
-        blocks.forEach((block, i) => {
-            const x = i % cols;
-            const delay = ((cols - x) * 0.05) + (Math.random() * 0.1);
-            block.style.transitionDelay = `${delay}s`;
-            block.classList.remove('active');
-        });
-        setTimeout(() => {
-            if (transitionOverlay) transitionOverlay.classList.remove('blocking');
-        }, 1500);
-    }, 50);
-
-    // 3. Inventory Drawer Toggle
     const inventoryToggle = document.getElementById('inventory-toggle');
     const inventoryBody = document.getElementById('inventory-body');
 
@@ -64,10 +40,8 @@ export function initUI() {
         });
     }
 
-    // 4. Sector Map Navigation
     renderMap();
 
-    // 5. Alt + R Reset Shortcut
     window.addEventListener('keydown', (event) => {
         if (document.activeElement && document.activeElement.id === 'spyglass-search') return;
         if (event.altKey && event.key.toLowerCase() === 'r') {
@@ -78,6 +52,30 @@ export function initUI() {
             triggerPixelDissolve(window.location.href);
         }
     });
+}
+
+// Triggered only after all async fetches and 3D scenes complete
+export function revealPage() {
+    const loadingScreen = document.getElementById('loading-screen');
+    if (loadingScreen) {
+        loadingScreen.classList.add('hidden');
+        setTimeout(() => loadingScreen.remove(), 800);
+    }
+
+    const transitionOverlay = document.getElementById('transition-overlay');
+    if (transitionOverlay) {
+        const blocks = transitionOverlay.querySelectorAll('.pixel-block');
+        blocks.forEach((block, i) => {
+            const x = i % cols;
+            const delay = ((cols - x) * 0.05) + (Math.random() * 0.1);
+            block.style.transitionDelay = `${delay}s`;
+            block.classList.remove('active');
+        });
+
+        setTimeout(() => {
+            transitionOverlay.classList.remove('blocking');
+        }, 1500);
+    }
 }
 
 function renderMap() {
@@ -121,7 +119,6 @@ function renderMap() {
     });
 }
 
-// Triggered when switching sectors or resetting via Alt+R (Page Unload Animation)
 export function triggerPixelDissolve(targetUrl) {
     let overlay = document.getElementById('transition-overlay');
     if (!overlay) {
