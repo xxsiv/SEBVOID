@@ -2,50 +2,54 @@
 
 export function buildCastleGate(createVoxel, sMat, wMat) {
     const group = new THREE.Group();
-    const tHeight = 45; // Tower height
-    const aHeight = 28; // Arch wall height
+    const tHeight = 65; // Taller towers for an imposing scale
+    const aHeight = 42; // Taller arch wall
+    const tRadius = 8;  // Larger, wider towers
 
-    // Voxel coordinates mapping
+    // Loop ranges expanded to accommodate the massive scale
     for (let y = 0; y < tHeight; y++) {
-        for (let x = -26; x <= 26; x++) {
-            for (let z = -5; z <= 5; z++) {
+        for (let x = -36; x <= 36; x++) {
+            for (let z = -9; z <= 9; z++) {
                 let isSolid = false;
                 let isGate = false;
 
-                // Two round towers centered at x = -20 and x = 20[cite: 10]
-                const distL = Math.sqrt((x + 20)**2 + z**2);
-                const distR = Math.sqrt((x - 20)**2 + z**2);
+                // Move towers further out from the center path
+                const distL = Math.sqrt((x + 26)**2 + z**2);
+                const distR = Math.sqrt((x - 26)**2 + z**2);
 
-                if (distL <= 5.5 || distR <= 5.5) {
+                // PERFORMANCE FIX: Hollow cylinders.
+                // Math.round() forces the towers to be strictly 1-voxel thick.
+                const inLeftTower = Math.round(distL) === tRadius;
+                const inRightTower = Math.round(distR) === tRadius;
+
+                if (inLeftTower || inRightTower) {
                     isSolid = true;
-                    // Crenellations on the tower roofs[cite: 10]
-                    if (y > 38) {
-                        const angle = Math.atan2(z, (x < 0 ? x + 20 : x - 20));
+
+                    // Thicker, blockier battlements on tower roofs
+                    if (y > 56) {
+                        const angle = Math.atan2(z, (x < 0 ? x + 26 : x - 26));
+                        // Slice the cylinder roof into 8 alternating notches
                         const notch = Math.floor((angle + Math.PI) / (Math.PI / 4)) % 2 === 0;
-                        if ((distL > 3.5 || distR > 3.5) && notch) {
-                            isSolid = true;
-                        } else {
-                            isSolid = false;
-                        }
+                        if (notch) isSolid = false;
                     }
                 }
-                // Connecting archway and gates[cite: 10]
-                else if (Math.abs(x) <= 15) {
-                    if (Math.abs(z) <= 2) {
-                        // Pointed Gothic arch profile[cite: 10]
-                        const archTop = 12 + (15 - Math.abs(x)) * 0.8;
-                        if (y > archTop && y <= aHeight) {
-                            isSolid = true;
-                        } else if (y <= archTop && z === 0) {
-                            // Iron diamond lattice gate pattern[cite: 10]
-                            if (Math.abs(x + y) % 3 === 0 || Math.abs(x - y) % 3 === 0) {
-                                isGate = true;
-                            }
+                // Connecting archway and gates (Hollowed to a strictly 1-voxel thick wall at z=0)
+                else if (Math.abs(x) < 19 && z === 0) {
+                    // Steeper, more dramatic Gothic arch profile
+                    const archTop = 18 + (18 - Math.abs(x)) * 1.2;
+
+                    if (y > archTop && y <= aHeight) {
+                        isSolid = true;
+                    } else if (y <= archTop) {
+                        // Sparser Iron diamond lattice (Modulo 4 instead of 3 reduces cube count by 33%)
+                        if (Math.abs(x + y) % 4 === 0 || Math.abs(x - y) % 4 === 0) {
+                            isGate = true;
                         }
                     }
-                    // Crenellations across the archway wall[cite: 10]
-                    if (y === aHeight + 1 && Math.abs(z) <= 2) {
-                        if (Math.abs(x) % 4 < 2) isSolid = true;
+
+                    // Wall Crenellations spanning between the towers
+                    if (y > aHeight && y <= aHeight + 2) {
+                        if (Math.abs(x) % 6 < 3) isSolid = true;
                     }
                 }
 
@@ -53,7 +57,7 @@ export function buildCastleGate(createVoxel, sMat, wMat) {
                     const v = createVoxel(x, y, z, sMat, wMat);
                     if (v) group.add(v);
                 } else if (isGate) {
-                    // Force the iron gates to render as wireframes[cite: 10]
+                    // Force the iron gates to render as wireframes
                     const v = createVoxel(x, y, z, wMat, wMat);
                     if (v) {
                         v.userData.isWireframe = true;
@@ -69,7 +73,7 @@ export function buildCastleGate(createVoxel, sMat, wMat) {
 // Structure Registry: Define which structures appear on which sectors and at what depth
 export const sectorStructures = {
     'home': [
-        // zIndex 4 corresponds to z = -80 (exactly between the 1st and 2nd post)
+        // zIndex 4 drops the gate exactly in the gap between the 1st and 2nd post
         { zIndex: 4, builder: buildCastleGate }
     ]
 };
