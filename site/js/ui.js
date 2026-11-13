@@ -36,7 +36,9 @@ export function initUI() {
             event.stopPropagation();
             inventoryBody.classList.toggle('collapsed');
             inventoryToggle.classList.toggle('collapsed');
-            if (inventoryText) inventoryText.textContent = inventoryBody.classList.contains('collapsed') ? 'INVENTORY >' : 'INVENTORY \/';
+            if (inventoryText) {
+                inventoryText.textContent = inventoryBody.classList.contains('collapsed') ? 'INVENTORY >' : 'INVENTORY v';
+            }
         });
     }
 
@@ -90,13 +92,13 @@ function renderMap() {
         { id: 'hedonism', label: 'HEDONISM', url: 'hedonism' }
     ];
 
-    let html = `<span class="ascii-deco">+- SECTORS ------------+</span>\n`;
+    let html = '<span class="ascii-deco">+- SECTORS ------------+</span>\n';
     allSectors.forEach(s => {
         const isCurrent = s.id === state.currentSector;
         const mark = isCurrent ? '<span class="mention">[*]</span>' : '[ ]';
-        html += `<span class="ascii-deco">|</span> ${mark} <span class="map-link map-text" data-target="${s.url}">${s.label.padEnd(12, ' ')}</span> <span class="ascii-deco">|</span>\n`;
+        html += '<span class="ascii-deco">|</span> ' + mark + ' <span class="map-link map-text" data-target="' + s.url + '">' + s.label.padEnd(12, ' ') + '</span> <span class="ascii-deco">|</span>\n';
     });
-    html += `<span class="ascii-deco">+----------------------+</span>`;
+    html += '<span class="ascii-deco">+----------------------+</span>';
     mapContainer.innerHTML = html;
 
     document.querySelectorAll('.map-link').forEach(el => {
@@ -104,7 +106,7 @@ function renderMap() {
             e.stopPropagation();
             const targetSector = e.target.dataset.target;
             if (targetSector !== state.currentSector) {
-                triggerPixelDissolve(`index.html?sector=${targetSector}`);
+                triggerPixelDissolve('index.html?sector=' + targetSector);
             }
         });
     });
