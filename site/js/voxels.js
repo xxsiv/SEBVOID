@@ -12,7 +12,7 @@ export let wireframeCubeIds = [];
 // Master InstancedMeshes & Registry
 export let solidInstancedMesh = null;
 export let wireInstancedMesh = null;
-export const instanceRegistry = []; // Maps instanceId -> { id, group, localPos, scale, rot, isWireframe, isHarvested, isDynamic, rotX, rotY }
+export const instanceRegistry = [];
 
 const vSize = 0.35;
 const voxelGeo = new THREE.BoxGeometry(vSize, vSize, vSize);
@@ -48,8 +48,6 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
     }
     const seededRandom = createPRNG(parsedSeed);
 
-    // Virtual voxel collector: instead of creating heavy THREE.Mesh objects,
-    // it registers lightweight data entries to be batched into InstancedMeshes.
     let currentTargetGroup = null;
     const createVoxel = (vx, vy, vz, matS, matW, isDynamic = false) => {
         const thisId = state.globalCubeIdCounter++;
@@ -75,7 +73,6 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
             currentTargetGroup.userData.entries.push(entry);
         }
 
-        // Return a lightweight proxy so structures.js (like buildCastleGate) works unchanged
         return {
             userData: entry,
             position: entry.localPos,
@@ -115,10 +112,16 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
     const pillarYOffset = -10;
     const states = ['intact', 'broken-left', 'broken-right', 'shattered-top'];
     const activeStructures = sectorStructures[state.currentSector] || [];
+    const isExclusiveLandmarkSector = activeStructures.some(s => s.exclusive);
 
-    sceneBg.fog = new THREE.Fog(0xe0e0e0, Math.min(20, panelWrapDistance * 0.12), Math.max(90, panelWrapDistance * 0.75));
+    // Push fog back slightly in exclusive landmark sectors so towering structures remain crisp
+    const fogNear = isExclusiveLandmarkSector ? 40 : Math.min(20, panelWrapDistance * 0.12);
+    const fogFar = isExclusiveLandmarkSector ? Math.max(180, panelWrapDistance * 0.9) : Math.max(90, panelWrapDistance * 0.75);
+    sceneBg.fog = new THREE.Fog(0xe0e0e0, fogNear, fogFar);
 
-    for (let i = 0; i < corridorDepthCount; i++) {
+    const loopCount = Math.max(corridorDepthCount, ...activeStructures.map(s => s.zIndex + 1));
+
+    for (let i = 0; i < loopCount; i++) {
         const zPos = -(i * spacingZ);
         const customStruct = activeStructures.find(s => s.zIndex === i);
 
@@ -128,14 +131,20 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
             wrapperGroup.userData.entries = [];
             currentTargetGroup = wrapperGroup;
 
-            // Execute custom builder (ignores returned empty THREE.Group children since createVoxel registers directly)
             customStruct.builder(createVoxel, solidMaterial, wireframeMaterial);
 
-            wrapperGroup.position.set(0, pillarYOffset, zPos);
+            const structScale = customStruct.scale || 1;
+            const structY = customStruct.yOffset !== undefined ? customStruct.yOffset : pillarYOffset;
+
+            wrapperGroup.scale.setScalar(structScale);
+            wrapperGroup.position.set(0, structY, zPos);
             sceneBg.add(wrapperGroup);
             pillarGroups.push(wrapperGroup);
             continue;
         }
+
+        // Skip procedural pillars if this sector is marked exclusive for landmarks
+        if (isExclusiveLandmarkSector) continue;
 
         // 2. Procedural Pillars
         [-1, 1].forEach(sideMultiplier => {
@@ -177,20 +186,18 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
         });
     }
 
-    // Build the two master InstancedMeshes (2 draw calls total for the entire world)
     const totalCount = instanceRegistry.length;
     solidInstancedMesh = new THREE.InstancedMesh(voxelGeo, solidMaterial, totalCount);
     wireInstancedMesh = new THREE.InstancedMesh(voxelGeo, wireframeMaterial, totalCount);
 
     solidInstancedMesh.castShadow = true;
     solidInstancedMesh.receiveShadow = true;
-    solidInstancedMesh.frustumCulled = false; // Handled manually per group
+    solidInstancedMesh.frustumCulled = false;
     wireInstancedMesh.frustumCulled = false;
 
     sceneBg.add(solidInstancedMesh);
     sceneBg.add(wireInstancedMesh);
 
-    // Initialize all matrices
     syncAllInstanceMatrices();
 
     if (cubeCountDisplayEl) cubeCountDisplayEl.textContent = `CUBE COUNT: ${state.collectedCubes}/${state.globalCubeIdCounter}`;
@@ -199,12 +206,12 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
 const dummy = new THREE.Object3D();
 const zeroScale = new THREE.Vector3(0, 0, 0);
 
-// Updates matrices for a specific group when it moves, wraps, or toggles visibility
 export function syncGroupMatrices(group) {
     if (!solidInstancedMesh || !wireInstancedMesh || !group.userData.entries) return;
 
     const entries = group.userData.entries;
     const isVisible = group.visible;
+    const gScale = group.scale.x;
 
     for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
@@ -219,12 +226,12 @@ export function syncGroupMatrices(group) {
         }
 
         dummy.position.set(
-            group.position.x + entry.localPos.x,
-            group.position.y + entry.localPos.y,
-            group.position.z + entry.localPos.z
+            group.position.x + (entry.localPos.x * gScale),
+                           group.position.y + (entry.localPos.y * gScale),
+                           group.position.z + (entry.localPos.z * gScale)
         );
         dummy.rotation.copy(entry.rot);
-        dummy.scale.setScalar(entry.scale);
+        dummy.scale.setScalar(entry.scale * gScale);
         dummy.updateMatrix();
 
         if (entry.isWireframe) {
@@ -250,13 +257,14 @@ export function syncAllInstanceMatrices() {
 }
 
 export function spawnHarvestFlyMesh(entry, camera) {
+    const gScale = entry.group.scale.x;
     const flyMesh = new THREE.Mesh(voxelGeo, entry.isWireframe ? wireframeMaterial : solidMaterial);
-    flyMesh.scale.setScalar(entry.scale);
+    flyMesh.scale.setScalar(entry.scale * gScale);
 
     const worldPos = new THREE.Vector3(
-        entry.group.position.x + entry.localPos.x,
-        entry.group.position.y + entry.localPos.y,
-        entry.group.position.z + entry.localPos.z
+        entry.group.position.x + (entry.localPos.x * gScale),
+                                       entry.group.position.y + (entry.localPos.y * gScale),
+                                       entry.group.position.z + (entry.localPos.z * gScale)
     );
 
     camera.add(flyMesh);

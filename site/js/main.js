@@ -104,7 +104,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         state.currentVelocity.x += (state.targetVelocity.x - state.currentVelocity.x) * 0.15;
         state.currentVelocity.y += (state.targetVelocity.y - state.currentVelocity.y) * 0.15;
 
-        cursorTiltContainer.rotation.x += (cursorData.targetTiltX - cursorTiltContainer.rotation.x) * 0.3;
+        cursorTiltContainer.rotation.x += (cursorData.targetTiltX - cursorData.rotation.x) * 0.3;
         cursorSpinGroup.rotation.y -= 0.02;
 
         for (let i = harvestingCubes.length - 1; i >= 0; i--) {
@@ -123,21 +123,23 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
-        const maxVisibleDist = Math.min(140, state.panelWrapDistance - 25);
+        const maxVisibleDist = Math.min(200, Math.max(state.panelWrapDistance + 40, 180));
 
         // Wrap pillar/structure groups & update instance matrices ONLY if position or visibility changed
         pillarGroups.forEach(group => {
             let dirty = false;
-            if (group.position.z > camera.position.z + 25) {
+            const zMargin = 35 * group.scale.x;
+
+            if (group.position.z > camera.position.z + zMargin) {
                 group.position.z -= state.panelWrapDistance;
                 dirty = true;
-            } else if (group.position.z < camera.position.z - state.panelWrapDistance + 25) {
+            } else if (group.position.z < camera.position.z - state.panelWrapDistance + zMargin) {
                 group.position.z += state.panelWrapDistance;
                 dirty = true;
             }
 
             const dist = camera.position.z - group.position.z;
-            const shouldBeVisible = (dist >= -15 && dist <= maxVisibleDist + 15);
+            const shouldBeVisible = (dist >= -zMargin && dist <= maxVisibleDist);
             if (group.visible !== shouldBeVisible) {
                 group.visible = shouldBeVisible;
                 dirty = true;
