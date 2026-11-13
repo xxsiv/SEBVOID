@@ -59,14 +59,13 @@ export function buildCastleGate(createVoxel, sMat, wMat) {
                     }
                 }
 
+                // createVoxel now registers the data internally; no need to call group.add()
                 if (isSolid) {
-                    const v = createVoxel(x, y, z, sMat, wMat);
-                    if (v) group.add(v);
+                    createVoxel(x, y, z, sMat, wMat);
                 } else if (isGate) {
-                    const v = createVoxel(x, y, z, wMat, wMat);
-                    if (v) {
-                        v.userData.isWireframe = true;
-                        group.add(v);
+                    const proxy = createVoxel(x, y, z, wMat, wMat);
+                    if (proxy) {
+                        proxy.userData.isWireframe = true;
                     }
                 }
             }
