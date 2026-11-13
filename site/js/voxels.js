@@ -62,10 +62,11 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
             scale: 1,
             rot: new THREE.Euler(0, 0, 0),
             isWireframe: isWire,
-            isHarvested: isHarvested,
-            isDynamic: isDynamic,
-            rotX: 0,
-            rotY: 0
+            defaultWireframe: (matS === wireframeMaterial),
+                isHarvested: isHarvested,
+                isDynamic: isDynamic,
+                rotX: 0,
+                rotY: 0
         };
 
         instanceRegistry.push(entry);
@@ -113,12 +114,11 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
     const states = ['intact', 'broken-left', 'broken-right', 'shattered-top'];
     const activeStructures = sectorStructures[state.currentSector] || [];
 
-    // LIGHT FOG CONFIGURATION & SUBTLE SECTOR TINGES
     const sectorColors = {
-        'home': 0xffffff,        // Plain white start for homepage
-        'development': 0xf0faf3, // Faint green tinge
-        'news': 0xfaf0f0,        // Faint red tinge
-        'hedonism': 0xf8f0fa,    // Faint violet tinge
+        'home': 0xffffff,
+        'development': 0xf0faf3,
+        'news': 0xfaf0f0,
+        'hedonism': 0xf8f0fa,
     };
 
     const activeColor = sectorColors[state.currentSector] || 0xffffff;
@@ -154,7 +154,7 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
             continue;
         }
 
-        // 2. Procedural Pillars (Generates before and after the custom gate)
+        // 2. Procedural Pillars
         [-1, 1].forEach(sideMultiplier => {
             const xPos = (corridorWidth / 2) * sideMultiplier;
             const stateIndex = Math.min(Math.floor(seededRandom() * states.length), states.length - 1);
@@ -213,7 +213,6 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
 
 const dummy = new THREE.Object3D();
 const zeroScale = new THREE.Vector3(0, 0, 0);
-// Replace syncGroupMatrices and add resetAllStructures at the bottom of js/voxels.js
 
 export function syncGroupMatrices(group) {
     if (!solidInstancedMesh || !wireInstancedMesh || !group.userData.entries) return;
@@ -261,6 +260,11 @@ export function syncGroupMatrices(group) {
     wireInstancedMesh.instanceMatrix.needsUpdate = true;
 }
 
+export function syncAllInstanceMatrices() {
+    pillarGroups.forEach(g => syncGroupMatrices(g));
+    debrisClusters.forEach(g => syncGroupMatrices(g));
+}
+
 export function resetAllStructures() {
     harvestedCubeIds.length = 0;
     wireframeCubeIds.length = 0;
@@ -268,7 +272,7 @@ export function resetAllStructures() {
 
     instanceRegistry.forEach(entry => {
         entry.isHarvested = false;
-        entry.isWireframe = false;
+        entry.isWireframe = entry.defaultWireframe;
     });
 
     const cubeCountDisplayEl = document.getElementById('cube-count-display');
