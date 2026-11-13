@@ -104,7 +104,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         state.currentVelocity.x += (state.targetVelocity.x - state.currentVelocity.x) * 0.15;
         state.currentVelocity.y += (state.targetVelocity.y - state.currentVelocity.y) * 0.15;
 
-        // FIXED: Replaced cursorData.rotation.x with cursorTiltContainer.rotation.x
         cursorTiltContainer.rotation.x += (cursorData.targetTiltX - cursorTiltContainer.rotation.x) * 0.3;
         cursorSpinGroup.rotation.y -= 0.02;
 
@@ -126,21 +125,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const maxVisibleDist = Math.min(200, Math.max(state.panelWrapDistance + 40, 180));
 
-        // Wrap pillar/structure groups & update instance matrices ONLY if position or visibility changed
         pillarGroups.forEach(group => {
             let dirty = false;
-            const zMargin = 35 * group.scale.x;
 
-            if (group.position.z > camera.position.z + zMargin) {
+            // Decoupled margins:
+            // - wrapMargin is strict so objects don't teleport prematurely.
+            // - visMargin scales up so giant objects don't pop out of existence.
+            const wrapMargin = 25;
+            const visMargin = 35 * group.scale.x;
+
+            if (group.position.z > camera.position.z + wrapMargin) {
                 group.position.z -= state.panelWrapDistance;
                 dirty = true;
-            } else if (group.position.z < camera.position.z - state.panelWrapDistance + zMargin) {
+            } else if (group.position.z < camera.position.z - state.panelWrapDistance + wrapMargin) {
                 group.position.z += state.panelWrapDistance;
                 dirty = true;
             }
 
             const dist = camera.position.z - group.position.z;
-            const shouldBeVisible = (dist >= -zMargin && dist <= maxVisibleDist);
+            const shouldBeVisible = (dist >= -visMargin && dist <= maxVisibleDist);
             if (group.visible !== shouldBeVisible) {
                 group.visible = shouldBeVisible;
                 dirty = true;
@@ -149,7 +152,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (dirty) syncGroupMatrices(group);
         });
 
-            // Wrap debris clusters & animate spinning debris only for visible clusters
             debrisClusters.forEach(group => {
                 if (group.position.z > camera.position.z + 25) group.position.z -= state.panelWrapDistance;
                 else if (group.position.z < camera.position.z - state.panelWrapDistance + 25) group.position.z += state.panelWrapDistance;
