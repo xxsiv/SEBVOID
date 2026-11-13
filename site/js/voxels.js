@@ -113,15 +113,15 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
     const states = ['intact', 'broken-left', 'broken-right', 'shattered-top'];
     const activeStructures = sectorStructures[state.currentSector] || [];
 
-    // MOODY FOG CONFIGURATION & SECTOR THEMES
+    // LIGHT FOG CONFIGURATION & SUBTLE SECTOR TINGES
     const sectorColors = {
-        'home': 0x040710,        // Deep midnight blue
-        'development': 0x051008, // Dark matrix/corporate green
-        'news': 0x100505,        // Deep crimson red
-        'hedonism': 0x100412,    // Dark neon purple
+        'home': 0xffffff,        // Plain white start for homepage
+        'development': 0xf0faf3, // Faint green tinge
+        'news': 0xfaf0f0,        // Faint red tinge
+        'hedonism': 0xf8f0fa,    // Faint violet tinge
     };
 
-    const activeColor = sectorColors[state.currentSector] || 0x040710;
+    const activeColor = sectorColors[state.currentSector] || 0xffffff;
 
     const fogNear = 25;
     const fogFar = Math.max(160, panelWrapDistance * 0.85);
@@ -154,7 +154,7 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
             continue;
         }
 
-        // 2. Procedural Pillars
+        // 2. Procedural Pillars (Generates before and after the custom gate)
         [-1, 1].forEach(sideMultiplier => {
             const xPos = (corridorWidth / 2) * sideMultiplier;
             const stateIndex = Math.min(Math.floor(seededRandom() * states.length), states.length - 1);

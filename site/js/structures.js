@@ -76,18 +76,16 @@ export function buildCastleGate(createVoxel, sMat, wMat) {
 }
 
 // Structure Registry:
-// - exclusive: true disables procedural corridor pillars in this sector
 // - zIndex: 3 places the gate at z = -60 (directly behind the first post at z = -40)
-// - scale: 3 multiplies the physical size 3x without adding extra cubes
-// - yOffset: -22 lowers the base so the archway aligns vertically with the post
+// - scale: 3 multiplies the physical size 3x
+// - yOffset: -10 aligns the gate floor exactly with the procedural pillars
 export const sectorStructures = {
     'home': [
         {
             zIndex: 3,
             builder: buildCastleGate,
-            exclusive: true,
             scale: 3,
-            yOffset: -22
+            yOffset: -10
         }
     ]
 };
