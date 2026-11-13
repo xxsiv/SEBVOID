@@ -1,6 +1,5 @@
 // js/ui.js
 import { state } from './state.js';
-import { storageKeys } from './voxels.js';
 
 const cols = 20;
 const rows = 15;
@@ -44,13 +43,18 @@ export function initUI() {
 
     renderMap();
 
+    // Universal Wipe: Alt + R
     window.addEventListener('keydown', (event) => {
         if (document.activeElement && document.activeElement.id === 'spyglass-search') return;
         if (event.altKey && event.key.toLowerCase() === 'r') {
-            localStorage.removeItem(storageKeys.harvest);
-            localStorage.removeItem(storageKeys.wire);
-            localStorage.removeItem(storageKeys.seed);
-            localStorage.removeItem('megastructure_bookmarks');
+            const keysToRemove = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith('megastructure_')) {
+                    keysToRemove.push(key);
+                }
+            }
+            keysToRemove.forEach(k => localStorage.removeItem(k));
             triggerPixelDissolve(window.location.href);
         }
     });
@@ -84,7 +88,6 @@ function renderMap() {
     const mapContainer = document.getElementById('ascii-map');
     if (!mapContainer) return;
 
-    // Ordered list with HOME_PAGE at the top
     const allSectors = [
         { id: 'home', label: 'HOME_PAGE', url: 'home' },
         { id: 'development', label: 'DEVELOPMENT', url: 'development' },

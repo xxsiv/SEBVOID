@@ -75,8 +75,8 @@ h1, h2, h3 {
 .disconnected-shape {
     background-color: var(--color-white);
     border-top: 2px solid var(--color-white);
-    border-left: 6px solid var(--color-dark-grey);
-    border-right: 6px solid var(--color-dark-grey);
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
     border-bottom: 16px solid var(--color-black);
     padding: 2rem;
     padding-top: 2.75rem;

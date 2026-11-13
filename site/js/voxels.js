@@ -112,14 +112,25 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
     const pillarYOffset = -10;
     const states = ['intact', 'broken-left', 'broken-right', 'shattered-top'];
     const activeStructures = sectorStructures[state.currentSector] || [];
-    const isExclusiveLandmarkSector = activeStructures.some(s => s.exclusive);
 
-    // Push fog back slightly in exclusive landmark sectors so towering structures remain crisp
-    const fogNear = isExclusiveLandmarkSector ? 40 : Math.min(20, panelWrapDistance * 0.12);
-    const fogFar = isExclusiveLandmarkSector ? Math.max(180, panelWrapDistance * 0.9) : Math.max(90, panelWrapDistance * 0.75);
-    sceneBg.fog = new THREE.Fog(0xe0e0e0, fogNear, fogFar);
+    // MOODY FOG CONFIGURATION & SECTOR THEMES
+    const sectorColors = {
+        'home': 0x040710,        // Deep midnight blue
+        'development': 0x051008, // Dark matrix/corporate green
+        'news': 0x100505,        // Deep crimson red
+        'hedonism': 0x100412,    // Dark neon purple
+    };
 
-    const loopCount = Math.max(corridorDepthCount, ...activeStructures.map(s => s.zIndex + 1));
+    const activeColor = sectorColors[state.currentSector] || 0x040710;
+
+    const fogNear = 25;
+    const fogFar = Math.max(160, panelWrapDistance * 0.85);
+
+    sceneBg.background = new THREE.Color(activeColor);
+    sceneBg.fog = new THREE.Fog(activeColor, fogNear, fogFar);
+
+    const maxStructZ = activeStructures.length > 0 ? Math.max(...activeStructures.map(s => s.zIndex + 1)) : 0;
+    const loopCount = Math.max(corridorDepthCount, maxStructZ);
 
     for (let i = 0; i < loopCount; i++) {
         const zPos = -(i * spacingZ);
@@ -142,9 +153,6 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
             pillarGroups.push(wrapperGroup);
             continue;
         }
-
-        // Skip procedural pillars if this sector is marked exclusive for landmarks
-        if (isExclusiveLandmarkSector) continue;
 
         // 2. Procedural Pillars
         [-1, 1].forEach(sideMultiplier => {
