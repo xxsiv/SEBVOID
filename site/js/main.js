@@ -123,14 +123,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
-        const maxVisibleDist = Math.min(200, Math.max(state.panelWrapDistance + 40, 180));
+        const structMaxDist = Math.min(210, Math.max(state.panelWrapDistance + 40, 190));
+        const panelMaxDist = Math.min(140, Math.max(state.panelWrapDistance - 15, 45));
 
         pillarGroups.forEach(group => {
             let dirty = false;
-
-            // Decoupled margins:
-            // - wrapMargin is strict so objects don't teleport prematurely.
-            // - visMargin scales up so giant objects don't pop out of existence.
             const wrapMargin = 25;
             const visMargin = 35 * group.scale.x;
 
@@ -143,7 +140,24 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             const dist = camera.position.z - group.position.z;
-            const shouldBeVisible = (dist >= -visMargin && dist <= maxVisibleDist);
+            const fadeZone = 50;
+            let targetFade = 1;
+
+            if (dist < -visMargin || dist > structMaxDist) {
+                targetFade = 0;
+            } else if (dist > structMaxDist - fadeZone) {
+                targetFade = Math.max(0, (structMaxDist - dist) / fadeZone);
+            } else if (dist < 0) {
+                targetFade = Math.max(0, 1 - (Math.abs(dist) / visMargin));
+            }
+
+            const prevFade = group.userData.fade !== undefined ? group.userData.fade : 1;
+            if (Math.abs(targetFade - prevFade) > 0.01) {
+                group.userData.fade = targetFade;
+                dirty = true;
+            }
+
+            const shouldBeVisible = targetFade > 0.005;
             if (group.visible !== shouldBeVisible) {
                 group.visible = shouldBeVisible;
                 dirty = true;
@@ -157,10 +171,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 else if (group.position.z < camera.position.z - state.panelWrapDistance + 25) group.position.z += state.panelWrapDistance;
 
                 const dist = camera.position.z - group.position.z;
-                const shouldBeVisible = (dist >= -15 && dist <= maxVisibleDist + 15);
+                const shouldBeVisible = (dist >= -15 && dist <= structMaxDist);
 
                 if (shouldBeVisible) {
                     group.visible = true;
+                    group.userData.fade = dist > structMaxDist - 40 ? Math.max(0, (structMaxDist - dist) / 40) : 1;
                     group.userData.entries.forEach(entry => {
                         if (!entry.isHarvested) {
                             entry.rot.x += entry.rotX + (state.currentVelocity.y * 0.003);
@@ -170,6 +185,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     syncGroupMatrices(group);
                 } else if (group.visible) {
                     group.visible = false;
+                    group.userData.fade = 0;
                     syncGroupMatrices(group);
                 }
             });
@@ -188,7 +204,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const vec = panel.pos.clone();
                 const dist = camera.position.z - vec.z;
 
-                if (dist < -15 || dist > maxVisibleDist) {
+                if (dist < -15 || dist > panelMaxDist) {
                     panel.el.style.opacity = 0; panel.el.style.pointerEvents = 'none'; panel.maskMesh.visible = false;
                     return;
                 }
@@ -200,7 +216,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 let opacity = 1;
                 if (dist < 8) opacity = Math.max(0, (dist - 2) / 6);
-                else if (dist > maxVisibleDist - 50) opacity = Math.max(0, (maxVisibleDist - dist) / 50);
+                else if (dist > panelMaxDist - 35) opacity = Math.max(0, (panelMaxDist - dist) / 35);
 
                 panel.maskMesh.position.copy(panel.pos);
                 panel.maskMesh.position.z += 0.5;

@@ -73,11 +73,9 @@ h1, h2, h3 {
 .mention { color: var(--color-red); font-weight: bold; }
 
 .disconnected-shape {
-    background-color: var(--color-white);
-    border-top: 2px solid var(--color-white);
-    border-left: 6px solid transparent;
-    border-right: 6px solid transparent;
-    border-bottom: 16px solid var(--color-black);
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
     padding: 2rem;
     padding-top: 2.75rem;
     width: fit-content;
@@ -90,7 +88,6 @@ h1, h2, h3 {
     transform-origin: center center;
     pointer-events: auto;
     will-change: transform, opacity;
-    box-shadow: 15px 15px 0px var(--color-dark-grey);
     cursor: none !important;
     backface-visibility: hidden;
 }

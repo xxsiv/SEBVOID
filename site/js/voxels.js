@@ -213,6 +213,7 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
 
 const dummy = new THREE.Object3D();
 const zeroScale = new THREE.Vector3(0, 0, 0);
+// Replace syncGroupMatrices and add resetAllStructures at the bottom of js/voxels.js
 
 export function syncGroupMatrices(group) {
     if (!solidInstancedMesh || !wireInstancedMesh || !group.userData.entries) return;
@@ -220,12 +221,13 @@ export function syncGroupMatrices(group) {
     const entries = group.userData.entries;
     const isVisible = group.visible;
     const gScale = group.scale.x;
+    const fade = group.userData.fade !== undefined ? group.userData.fade : 1;
 
     for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         const idx = entry.instanceId;
 
-        if (!isVisible || entry.isHarvested) {
+        if (!isVisible || entry.isHarvested || fade <= 0.005) {
             dummy.scale.copy(zeroScale);
             dummy.updateMatrix();
             solidInstancedMesh.setMatrixAt(idx, dummy.matrix);
@@ -239,7 +241,7 @@ export function syncGroupMatrices(group) {
                            group.position.z + (entry.localPos.z * gScale)
         );
         dummy.rotation.copy(entry.rot);
-        dummy.scale.setScalar(entry.scale * gScale);
+        dummy.scale.setScalar(entry.scale * gScale * fade);
         dummy.updateMatrix();
 
         if (entry.isWireframe) {
@@ -259,9 +261,22 @@ export function syncGroupMatrices(group) {
     wireInstancedMesh.instanceMatrix.needsUpdate = true;
 }
 
-export function syncAllInstanceMatrices() {
-    pillarGroups.forEach(g => syncGroupMatrices(g));
-    debrisClusters.forEach(g => syncGroupMatrices(g));
+export function resetAllStructures() {
+    harvestedCubeIds.length = 0;
+    wireframeCubeIds.length = 0;
+    state.collectedCubes = 0;
+
+    instanceRegistry.forEach(entry => {
+        entry.isHarvested = false;
+        entry.isWireframe = false;
+    });
+
+    const cubeCountDisplayEl = document.getElementById('cube-count-display');
+    if (cubeCountDisplayEl) {
+        cubeCountDisplayEl.textContent = `CUBE COUNT: 0/${state.globalCubeIdCounter}`;
+    }
+
+    syncAllInstanceMatrices();
 }
 
 export function spawnHarvestFlyMesh(entry, camera) {

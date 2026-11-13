@@ -1,5 +1,6 @@
 // js/ui.js
 import { state } from './state.js';
+import { resetAllStructures } from './voxels.js';
 
 const cols = 20;
 const rows = 15;
@@ -7,7 +8,6 @@ const rows = 15;
 export function initUI() {
     document.body.dataset.node = state.currentSector;
 
-    // Create and hold transition overlay in blocking state during load
     let transitionOverlay = document.getElementById('transition-overlay');
     if (!transitionOverlay) {
         transitionOverlay = document.createElement('div');
@@ -43,24 +43,19 @@ export function initUI() {
 
     renderMap();
 
-    // Universal Wipe: Alt + R
     window.addEventListener('keydown', (event) => {
         if (document.activeElement && document.activeElement.id === 'spyglass-search') return;
-        if (event.altKey && event.key.toLowerCase() === 'r') {
-            const keysToRemove = [];
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key && key.startsWith('megastructure_')) {
-                    keysToRemove.push(key);
-                }
-            }
-            keysToRemove.forEach(k => localStorage.removeItem(k));
+        if (event.altKey && (event.code === 'KeyR' || event.key.toLowerCase() === 'r')) {
+            event.preventDefault();
+            Object.keys(localStorage)
+            .filter(key => key.startsWith('megastructure_'))
+            .forEach(key => localStorage.removeItem(key));
+            resetAllStructures();
             triggerPixelDissolve(window.location.href);
         }
     });
 }
 
-// Triggered only after all async fetches and 3D scenes complete
 export function revealPage() {
     const loadingScreen = document.getElementById('loading-screen');
     if (loadingScreen) {
