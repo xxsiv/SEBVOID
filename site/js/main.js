@@ -1,10 +1,15 @@
 // js/main.js
 import { state } from './state.js';
-import { initScene, sceneBg, sceneFg, rendererBg, rendererFg, camera, cameraFg, mouseLightBg, mouseLightFg, solidMaterial, wireframeMaterial } from './scene.js';
+import { initScene, sceneBg, sceneFg, rendererBg, rendererFg, camera, cameraFg, mouseLightBg, mouseLightFg } from './scene.js';
 import { fetchPostsAndComments } from './pocketbase.js';
 import { initCursor, updateCursorBounds, cursorData, cursorTiltContainer, cursorSpinGroup } from './cursor.js';
 import { initPanels, updateMaskScales, panelData, masks } from './panels.js';
-import { initVoxels, cubes, dynamicCubes, pillarGroups, debrisClusters, harvestingCubes, harvestedCubeIds, wireframeCubeIds, storageKeys } from './voxels.js';
+import {
+    initVoxels, pillarGroups, debrisClusters, harvestingCubes,
+    harvestedCubeIds, wireframeCubeIds, storageKeys,
+    solidInstancedMesh, wireInstancedMesh, instanceRegistry,
+    syncGroupMatrices, spawnHarvestFlyMesh
+} from './voxels.js';
 import { initUI, revealPage } from './ui.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -42,59 +47,43 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         raycaster.setFromCamera(state.mouse, camera);
 
-        // Only test visible groups near the camera + masks
-        const nearbyGroups = [...pillarGroups, ...debrisClusters].filter(
-            g => g.visible && Math.abs(g.position.z - camera.position.z) < 45
-        );
-        const intersects = raycaster.intersectObjects([...nearbyGroups, ...masks], true);
+        const targets = [...masks];
+        if (solidInstancedMesh) targets.push(solidInstancedMesh);
+        if (wireInstancedMesh) targets.push(wireInstancedMesh);
+
+        const intersects = raycaster.intersectObjects(targets, false);
 
         if (intersects.length > 0) {
-            const hitObject = intersects[0].object;
-            if (masks.includes(hitObject)) return;
+            const hit = intersects[0];
+            if (masks.includes(hit.object)) return;
 
+            const instanceId = hit.instanceId;
+            if (instanceId === undefined) return;
+
+            const entry = instanceRegistry[instanceId];
+            if (!entry || entry.isHarvested || !entry.group.visible) return;
+
+            // Right-Click: Toggle Wireframe
             if (event.button === 2) {
-                hitObject.userData.isWireframe = !hitObject.userData.isWireframe;
-                hitObject.material = hitObject.userData.isWireframe ? (hitObject.userData.wMat || wireframeMaterial) : (hitObject.userData.sMat || solidMaterial);
-                const id = hitObject.userData.id;
-                if (hitObject.userData.isWireframe) { if (!wireframeCubeIds.includes(id)) wireframeCubeIds.push(id); } else { wireframeCubeIds.splice(wireframeCubeIds.indexOf(id), 1); }
-                localStorage.setItem(storageKeys.wire, JSON.stringify(wireframeCubeIds));
-            }
-            else if (event.button === 0) {
-                const index = cubes.indexOf(hitObject);
-                if (index > -1) cubes.splice(index, 1);
-
-                const dynIndex = dynamicCubes.indexOf(hitObject);
-                if (dynIndex > -1) dynamicCubes.splice(dynIndex, 1);
-
-                const id = hitObject.userData.id;
-                if (!harvestedCubeIds.includes(id)) { harvestedCubeIds.push(id); localStorage.setItem(storageKeys.harvest, JSON.stringify(harvestedCubeIds)); }
-
-                // Re-enable matrixAutoUpdate so the harvest fly-in animation can move/scale the mesh
-                hitObject.matrixAutoUpdate = true;
-                hitObject.material = hitObject.userData.isWireframe ? wireframeMaterial : solidMaterial;
-
-                let targetLocalPos = new THREE.Vector3(0, 0, -4.0);
-                const cubeCountDisplayEl = document.getElementById('cube-count-display');
-                if (cubeCountDisplayEl) {
-                    const rect = cubeCountDisplayEl.getBoundingClientRect();
-                    const targetScreenX = rect.left + rect.width / 2;
-                    const targetScreenY = rect.top + rect.height / 2;
-                    const ndcX = (targetScreenX / window.innerWidth) * 2 - 1;
-                    const ndcY = -(targetScreenY / window.innerHeight) * 2 + 1;
-                    const targetZ = -4.0;
-                    const vFov = (camera.fov * Math.PI) / 180;
-                    const heightAtZ = 2 * Math.tan(vFov / 2) * Math.abs(targetZ);
-                    targetLocalPos.set(ndcX * (heightAtZ * camera.aspect / 2), ndcY * (heightAtZ / 2), targetZ);
+                entry.isWireframe = !entry.isWireframe;
+                if (entry.isWireframe) {
+                    if (!wireframeCubeIds.includes(entry.id)) wireframeCubeIds.push(entry.id);
+                } else {
+                    const idx = wireframeCubeIds.indexOf(entry.id);
+                    if (idx > -1) wireframeCubeIds.splice(idx, 1);
                 }
-
-                const worldPos = new THREE.Vector3();
-                hitObject.getWorldPosition(worldPos);
-                hitObject.parent.remove(hitObject);
-                camera.add(hitObject);
-                camera.worldToLocal(worldPos);
-                hitObject.position.copy(worldPos);
-                hitObject.userData.targetPos = targetLocalPos;
-                harvestingCubes.push(hitObject);
+                localStorage.setItem(storageKeys.wire, JSON.stringify(wireframeCubeIds));
+                syncGroupMatrices(entry.group);
+            }
+            // Left-Click: Harvest Instance
+            else if (event.button === 0) {
+                entry.isHarvested = true;
+                if (!harvestedCubeIds.includes(entry.id)) {
+                    harvestedCubeIds.push(entry.id);
+                    localStorage.setItem(storageKeys.harvest, JSON.stringify(harvestedCubeIds));
+                }
+                syncGroupMatrices(entry.group);
+                spawnHarvestFlyMesh(entry, camera);
             }
         }
     });
@@ -136,73 +125,90 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const maxVisibleDist = Math.min(140, state.panelWrapDistance - 25);
 
-        // Wrap and toggle visibility culling for pillar/structure groups
+        // Wrap pillar/structure groups & update instance matrices ONLY if position or visibility changed
         pillarGroups.forEach(group => {
-            if (group.position.z > camera.position.z + 25) group.position.z -= state.panelWrapDistance;
-            else if (group.position.z < camera.position.z - state.panelWrapDistance + 25) group.position.z += state.panelWrapDistance;
+            let dirty = false;
+            if (group.position.z > camera.position.z + 25) {
+                group.position.z -= state.panelWrapDistance;
+                dirty = true;
+            } else if (group.position.z < camera.position.z - state.panelWrapDistance + 25) {
+                group.position.z += state.panelWrapDistance;
+                dirty = true;
+            }
 
             const dist = camera.position.z - group.position.z;
-            group.visible = (dist >= -15 && dist <= maxVisibleDist + 15);
-        });
-
-        // Wrap and toggle visibility culling for debris clusters
-        debrisClusters.forEach(group => {
-            if (group.position.z > camera.position.z + 25) group.position.z -= state.panelWrapDistance;
-            else if (group.position.z < camera.position.z - state.panelWrapDistance + 25) group.position.z += state.panelWrapDistance;
-
-            const dist = camera.position.z - group.position.z;
-            group.visible = (dist >= -15 && dist <= maxVisibleDist + 15);
-        });
-
-        panelData.forEach(panel => {
-            if (panel.isBookmarked) return;
-
-            if (panel.pos.z > camera.position.z + 25) panel.pos.z -= state.panelWrapDistance;
-            else if (panel.pos.z < camera.position.z - state.panelWrapDistance + 25) panel.pos.z += state.panelWrapDistance;
-
-            if (panel.el.dataset.filtered === 'true') {
-                panel.el.style.opacity = 0; panel.el.style.pointerEvents = 'none'; panel.maskMesh.visible = false;
-                return;
+            const shouldBeVisible = (dist >= -15 && dist <= maxVisibleDist + 15);
+            if (group.visible !== shouldBeVisible) {
+                group.visible = shouldBeVisible;
+                dirty = true;
             }
 
-            const vec = panel.pos.clone();
-            const dist = camera.position.z - vec.z;
-
-            if (dist < -15 || dist > maxVisibleDist) {
-                panel.el.style.opacity = 0; panel.el.style.pointerEvents = 'none'; panel.maskMesh.visible = false;
-                return;
-            }
-
-            vec.project(camera);
-            const x = (vec.x * 0.5 + 0.5) * window.innerWidth;
-            const y = -(vec.y * 0.5 - 0.5) * window.innerHeight;
-            const scale = 10 / Math.max(dist, 0.1);
-
-            let opacity = 1;
-            if (dist < 8) opacity = Math.max(0, (dist - 2) / 6);
-            else if (dist > maxVisibleDist - 50) opacity = Math.max(0, (maxVisibleDist - dist) / 50);
-
-            panel.maskMesh.position.copy(panel.pos);
-            panel.maskMesh.position.z += 0.5;
-            panel.maskMesh.visible = (opacity > 0.05);
-
-            panel.el.style.zIndex = Math.floor(1000 - dist);
-            panel.el.style.transform = `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), 0) scale(${scale})`;
-            panel.el.style.opacity = opacity;
-            panel.el.style.pointerEvents = (opacity >= 0.5) ? 'auto' : 'none';
+            if (dirty) syncGroupMatrices(group);
         });
 
-        // Only animate floating debris blocks whose parent group is currently visible
-        for (let i = 0; i < dynamicCubes.length; i++) {
-            const cube = dynamicCubes[i];
-            if (cube.parent && cube.parent.visible) {
-                cube.rotation.x += cube.userData.rotX + (state.currentVelocity.y * 0.003);
-                cube.rotation.y += cube.userData.rotY + (state.currentVelocity.x * 0.003);
-            }
-        }
+            // Wrap debris clusters & animate spinning debris only for visible clusters
+            debrisClusters.forEach(group => {
+                if (group.position.z > camera.position.z + 25) group.position.z -= state.panelWrapDistance;
+                else if (group.position.z < camera.position.z - state.panelWrapDistance + 25) group.position.z += state.panelWrapDistance;
 
-        rendererBg.render(sceneBg, camera);
-        rendererFg.render(sceneFg, cameraFg);
+                const dist = camera.position.z - group.position.z;
+                const shouldBeVisible = (dist >= -15 && dist <= maxVisibleDist + 15);
+
+                if (shouldBeVisible) {
+                    group.visible = true;
+                    group.userData.entries.forEach(entry => {
+                        if (!entry.isHarvested) {
+                            entry.rot.x += entry.rotX + (state.currentVelocity.y * 0.003);
+                            entry.rot.y += entry.rotY + (state.currentVelocity.x * 0.003);
+                        }
+                    });
+                    syncGroupMatrices(group);
+                } else if (group.visible) {
+                    group.visible = false;
+                    syncGroupMatrices(group);
+                }
+            });
+
+            panelData.forEach(panel => {
+                if (panel.isBookmarked) return;
+
+                if (panel.pos.z > camera.position.z + 25) panel.pos.z -= state.panelWrapDistance;
+                else if (panel.pos.z < camera.position.z - state.panelWrapDistance + 25) panel.pos.z += state.panelWrapDistance;
+
+                if (panel.el.dataset.filtered === 'true') {
+                    panel.el.style.opacity = 0; panel.el.style.pointerEvents = 'none'; panel.maskMesh.visible = false;
+                    return;
+                }
+
+                const vec = panel.pos.clone();
+                const dist = camera.position.z - vec.z;
+
+                if (dist < -15 || dist > maxVisibleDist) {
+                    panel.el.style.opacity = 0; panel.el.style.pointerEvents = 'none'; panel.maskMesh.visible = false;
+                    return;
+                }
+
+                vec.project(camera);
+                const x = (vec.x * 0.5 + 0.5) * window.innerWidth;
+                const y = -(vec.y * 0.5 - 0.5) * window.innerHeight;
+                const scale = 10 / Math.max(dist, 0.1);
+
+                let opacity = 1;
+                if (dist < 8) opacity = Math.max(0, (dist - 2) / 6);
+                else if (dist > maxVisibleDist - 50) opacity = Math.max(0, (maxVisibleDist - dist) / 50);
+
+                panel.maskMesh.position.copy(panel.pos);
+                panel.maskMesh.position.z += 0.5;
+                panel.maskMesh.visible = (opacity > 0.05);
+
+                panel.el.style.zIndex = Math.floor(1000 - dist);
+                panel.el.style.transform = `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), 0) scale(${scale})`;
+                panel.el.style.opacity = opacity;
+                panel.el.style.pointerEvents = (opacity >= 0.5) ? 'auto' : 'none';
+            });
+
+            rendererBg.render(sceneBg, camera);
+            rendererFg.render(sceneFg, cameraFg);
     }
 
     animate();

@@ -3,13 +3,16 @@ import { state } from './state.js';
 import { sceneBg, solidMaterial, wireframeMaterial } from './scene.js';
 import { sectorStructures } from './structures.js';
 
-export const cubes = [];
-export const dynamicCubes = []; // Dedicated array for spinning debris
 export const pillarGroups = [];
 export const debrisClusters = [];
 export const harvestingCubes = [];
 export let harvestedCubeIds = [];
 export let wireframeCubeIds = [];
+
+// Master InstancedMeshes & Registry
+export let solidInstancedMesh = null;
+export let wireInstancedMesh = null;
+export const instanceRegistry = []; // Maps instanceId -> { id, group, localPos, scale, rot, isWireframe, isHarvested, isDynamic, rotX, rotY }
 
 const vSize = 0.35;
 const voxelGeo = new THREE.BoxGeometry(vSize, vSize, vSize);
@@ -45,33 +48,47 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
     }
     const seededRandom = createPRNG(parsedSeed);
 
+    // Virtual voxel collector: instead of creating heavy THREE.Mesh objects,
+    // it registers lightweight data entries to be batched into InstancedMeshes.
+    let currentTargetGroup = null;
     const createVoxel = (vx, vy, vz, matS, matW, isDynamic = false) => {
         const thisId = state.globalCubeIdCounter++;
-        if (harvestedCubeIds.includes(thisId)) return null;
+        const isHarvested = harvestedCubeIds.includes(thisId);
+        const isWire = wireframeCubeIds.includes(thisId) || (matS === wireframeMaterial);
 
-        const isWire = wireframeCubeIds.includes(thisId);
-        const voxel = new THREE.Mesh(voxelGeo, isWire ? matW : matS);
-        voxel.position.set(vx * vSize, vy * vSize, vz * vSize);
+        const entry = {
+            instanceId: instanceRegistry.length,
+            id: thisId,
+            group: currentTargetGroup,
+            localPos: new THREE.Vector3(vx * vSize, vy * vSize, vz * vSize),
+            scale: 1,
+            rot: new THREE.Euler(0, 0, 0),
+            isWireframe: isWire,
+            isHarvested: isHarvested,
+            isDynamic: isDynamic,
+            rotX: 0,
+            rotY: 0
+        };
 
-        if (isDynamic) {
-            voxel.castShadow = false;
-            voxel.receiveShadow = false;
-            dynamicCubes.push(voxel);
-        } else {
-            // Freeze static matrix calculations to save CPU cycles every frame
-            voxel.matrixAutoUpdate = false;
-            voxel.updateMatrix();
-            voxel.castShadow = true;
-            voxel.receiveShadow = true;
+        instanceRegistry.push(entry);
+        if (currentTargetGroup) {
+            currentTargetGroup.userData.entries.push(entry);
         }
 
-        voxel.userData = { id: thisId, isWireframe: isWire, isStatic: !isDynamic, sMat: matS, wMat: matW };
-        cubes.push(voxel);
-        return voxel;
+        // Return a lightweight proxy so structures.js (like buildCastleGate) works unchanged
+        return {
+            userData: entry,
+            position: entry.localPos,
+            rotation: entry.rot,
+            scale: { setScalar: (s) => { entry.scale = s; } }
+        };
     };
 
     function buildProceduralPillar(stateType, sMat, wMat) {
         const group = new THREE.Group();
+        group.userData.entries = [];
+        currentTargetGroup = group;
+
         let maxHeight = 45;
         if (stateType === 'shattered-top') maxHeight = 28;
 
@@ -87,8 +104,7 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
                     if (stateType === 'broken-right' && y >= 15 && y <= 25 && ((x > 0 && seededRandom() > 0.1) || (x === 0 && seededRandom() > 0.5))) continue;
                     if (stateType === 'shattered-top' && y >= 20 && seededRandom() < ((y - 20) / (maxHeight - 20))) continue;
 
-                    const v = createVoxel(x, y, z, sMat, wMat, false);
-                    if (v) group.add(v);
+                    createVoxel(x, y, z, sMat, wMat, false);
                 }
             }
         }
@@ -106,18 +122,22 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
         const zPos = -(i * spacingZ);
         const customStruct = activeStructures.find(s => s.zIndex === i);
 
-        // 1. INJECT CUSTOM STRUCTURES (Reusing shared materials)
+        // 1. Custom Structures
         if (customStruct) {
-            const pGroup = customStruct.builder(createVoxel, solidMaterial, wireframeMaterial);
-            pGroup.position.set(0, pillarYOffset, zPos);
-            pGroup.userData = { sMat: solidMaterial, wMat: wireframeMaterial };
+            const wrapperGroup = new THREE.Group();
+            wrapperGroup.userData.entries = [];
+            currentTargetGroup = wrapperGroup;
 
-            sceneBg.add(pGroup);
-            pillarGroups.push(pGroup);
+            // Execute custom builder (ignores returned empty THREE.Group children since createVoxel registers directly)
+            customStruct.builder(createVoxel, solidMaterial, wireframeMaterial);
+
+            wrapperGroup.position.set(0, pillarYOffset, zPos);
+            sceneBg.add(wrapperGroup);
+            pillarGroups.push(wrapperGroup);
             continue;
         }
 
-        // 2. PROCEDURAL GENERATION BACKUP (Reusing shared materials)
+        // 2. Procedural Pillars
         [-1, 1].forEach(sideMultiplier => {
             const xPos = (corridorWidth / 2) * sideMultiplier;
             const stateIndex = Math.min(Math.floor(seededRandom() * states.length), states.length - 1);
@@ -125,39 +145,138 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
 
             const pGroup = buildProceduralPillar(stateType, solidMaterial, wireframeMaterial);
             pGroup.position.set(xPos, pillarYOffset, zPos);
-            pGroup.userData = { sMat: solidMaterial, wMat: wireframeMaterial };
             sceneBg.add(pGroup);
             pillarGroups.push(pGroup);
 
             if (stateType !== 'intact') {
                 const debrisGroup = new THREE.Group();
+                debrisGroup.userData.entries = [];
+                currentTargetGroup = debrisGroup;
+
                 sceneBg.add(debrisGroup);
                 debrisClusters.push(debrisGroup);
-                debrisGroup.userData = { sMat: solidMaterial, wMat: wireframeMaterial };
 
                 const cubeCount = Math.floor(seededRandom() * 5) + 2;
                 const epicenterY = stateType === 'shattered-top' ? 10 : 5;
 
                 for (let j = 0; j < cubeCount; j++) {
-                    const v = createVoxel(0, 0, 0, solidMaterial, wireframeMaterial, true);
-                    if (v) {
-                        v.scale.setScalar(seededRandom() * 1.0 + 0.5);
-                        const scatterX = (seededRandom() - 0.5) * 4;
-                        const scatterY = (seededRandom() - 0.5) * 4;
-                        const scatterZ = (seededRandom() - 0.5) * 4;
+                    const proxy = createVoxel(0, 0, 0, solidMaterial, wireframeMaterial, true);
+                    proxy.scale.setScalar(seededRandom() * 1.0 + 0.5);
 
-                        v.position.set(scatterX + (sideMultiplier * -2), scatterY + epicenterY, scatterZ);
-                        v.rotation.set(seededRandom() * Math.PI, seededRandom() * Math.PI, 0);
-                        v.userData.rotX = (seededRandom() - 0.5) * 0.04;
-                        v.userData.rotY = (seededRandom() - 0.5) * 0.04;
+                    const scatterX = (seededRandom() - 0.5) * 4;
+                    const scatterY = (seededRandom() - 0.5) * 4;
+                    const scatterZ = (seededRandom() - 0.5) * 4;
 
-                        debrisGroup.add(v);
-                    }
+                    proxy.position.set(scatterX + (sideMultiplier * -2), scatterY + epicenterY, scatterZ);
+                    proxy.rotation.set(seededRandom() * Math.PI, seededRandom() * Math.PI, 0);
+                    proxy.userData.rotX = (seededRandom() - 0.5) * 0.04;
+                    proxy.userData.rotY = (seededRandom() - 0.5) * 0.04;
                 }
                 debrisGroup.position.set(xPos, pillarYOffset, zPos);
             }
         });
     }
 
+    // Build the two master InstancedMeshes (2 draw calls total for the entire world)
+    const totalCount = instanceRegistry.length;
+    solidInstancedMesh = new THREE.InstancedMesh(voxelGeo, solidMaterial, totalCount);
+    wireInstancedMesh = new THREE.InstancedMesh(voxelGeo, wireframeMaterial, totalCount);
+
+    solidInstancedMesh.castShadow = true;
+    solidInstancedMesh.receiveShadow = true;
+    solidInstancedMesh.frustumCulled = false; // Handled manually per group
+    wireInstancedMesh.frustumCulled = false;
+
+    sceneBg.add(solidInstancedMesh);
+    sceneBg.add(wireInstancedMesh);
+
+    // Initialize all matrices
+    syncAllInstanceMatrices();
+
     if (cubeCountDisplayEl) cubeCountDisplayEl.textContent = `CUBE COUNT: ${state.collectedCubes}/${state.globalCubeIdCounter}`;
+}
+
+const dummy = new THREE.Object3D();
+const zeroScale = new THREE.Vector3(0, 0, 0);
+
+// Updates matrices for a specific group when it moves, wraps, or toggles visibility
+export function syncGroupMatrices(group) {
+    if (!solidInstancedMesh || !wireInstancedMesh || !group.userData.entries) return;
+
+    const entries = group.userData.entries;
+    const isVisible = group.visible;
+
+    for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        const idx = entry.instanceId;
+
+        if (!isVisible || entry.isHarvested) {
+            dummy.scale.copy(zeroScale);
+            dummy.updateMatrix();
+            solidInstancedMesh.setMatrixAt(idx, dummy.matrix);
+            wireInstancedMesh.setMatrixAt(idx, dummy.matrix);
+            continue;
+        }
+
+        dummy.position.set(
+            group.position.x + entry.localPos.x,
+            group.position.y + entry.localPos.y,
+            group.position.z + entry.localPos.z
+        );
+        dummy.rotation.copy(entry.rot);
+        dummy.scale.setScalar(entry.scale);
+        dummy.updateMatrix();
+
+        if (entry.isWireframe) {
+            wireInstancedMesh.setMatrixAt(idx, dummy.matrix);
+            dummy.scale.copy(zeroScale);
+            dummy.updateMatrix();
+            solidInstancedMesh.setMatrixAt(idx, dummy.matrix);
+        } else {
+            solidInstancedMesh.setMatrixAt(idx, dummy.matrix);
+            dummy.scale.copy(zeroScale);
+            dummy.updateMatrix();
+            wireInstancedMesh.setMatrixAt(idx, dummy.matrix);
+        }
+    }
+
+    solidInstancedMesh.instanceMatrix.needsUpdate = true;
+    wireInstancedMesh.instanceMatrix.needsUpdate = true;
+}
+
+export function syncAllInstanceMatrices() {
+    pillarGroups.forEach(g => syncGroupMatrices(g));
+    debrisClusters.forEach(g => syncGroupMatrices(g));
+}
+
+export function spawnHarvestFlyMesh(entry, camera) {
+    const flyMesh = new THREE.Mesh(voxelGeo, entry.isWireframe ? wireframeMaterial : solidMaterial);
+    flyMesh.scale.setScalar(entry.scale);
+
+    const worldPos = new THREE.Vector3(
+        entry.group.position.x + entry.localPos.x,
+        entry.group.position.y + entry.localPos.y,
+        entry.group.position.z + entry.localPos.z
+    );
+
+    camera.add(flyMesh);
+    camera.worldToLocal(worldPos);
+    flyMesh.position.copy(worldPos);
+
+    let targetLocalPos = new THREE.Vector3(0, 0, -4.0);
+    const cubeCountDisplayEl = document.getElementById('cube-count-display');
+    if (cubeCountDisplayEl) {
+        const rect = cubeCountDisplayEl.getBoundingClientRect();
+        const targetScreenX = rect.left + rect.width / 2;
+        const targetScreenY = rect.top + rect.height / 2;
+        const ndcX = (targetScreenX / window.innerWidth) * 2 - 1;
+        const ndcY = -(targetScreenY / window.innerHeight) * 2 + 1;
+        const targetZ = -4.0;
+        const vFov = (camera.fov * Math.PI) / 180;
+        const heightAtZ = 2 * Math.tan(vFov / 2) * Math.abs(targetZ);
+        targetLocalPos.set(ndcX * (heightAtZ * camera.aspect / 2), ndcY * (heightAtZ / 2), targetZ);
+    }
+
+    flyMesh.userData.targetPos = targetLocalPos;
+    harvestingCubes.push(flyMesh);
 }
