@@ -4,6 +4,7 @@ import { sceneBg, solidMaterial, wireframeMaterial } from './scene.js';
 import { sectorStructures } from './structures.js';
 
 export const cubes = [];
+export const dynamicCubes = []; // Dedicated array for spinning debris
 export const pillarGroups = [];
 export const debrisClusters = [];
 export const harvestingCubes = [];
@@ -44,17 +45,27 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
     }
     const seededRandom = createPRNG(parsedSeed);
 
-    // Factory passed to builders so custom structures perfectly track global ID states
-    const createVoxel = (vx, vy, vz, matS, matW) => {
+    const createVoxel = (vx, vy, vz, matS, matW, isDynamic = false) => {
         const thisId = state.globalCubeIdCounter++;
         if (harvestedCubeIds.includes(thisId)) return null;
 
         const isWire = wireframeCubeIds.includes(thisId);
         const voxel = new THREE.Mesh(voxelGeo, isWire ? matW : matS);
         voxel.position.set(vx * vSize, vy * vSize, vz * vSize);
-        voxel.castShadow = true;
-        voxel.receiveShadow = true;
-        voxel.userData = { id: thisId, isWireframe: isWire, isStatic: true, sMat: matS, wMat: matW };
+
+        if (isDynamic) {
+            voxel.castShadow = false;
+            voxel.receiveShadow = false;
+            dynamicCubes.push(voxel);
+        } else {
+            // Freeze static matrix calculations to save CPU cycles every frame
+            voxel.matrixAutoUpdate = false;
+            voxel.updateMatrix();
+            voxel.castShadow = true;
+            voxel.receiveShadow = true;
+        }
+
+        voxel.userData = { id: thisId, isWireframe: isWire, isStatic: !isDynamic, sMat: matS, wMat: matW };
         cubes.push(voxel);
         return voxel;
     };
@@ -76,7 +87,7 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
                     if (stateType === 'broken-right' && y >= 15 && y <= 25 && ((x > 0 && seededRandom() > 0.1) || (x === 0 && seededRandom() > 0.5))) continue;
                     if (stateType === 'shattered-top' && y >= 20 && seededRandom() < ((y - 20) / (maxHeight - 20))) continue;
 
-                    const v = createVoxel(x, y, z, sMat, wMat);
+                    const v = createVoxel(x, y, z, sMat, wMat, false);
                     if (v) group.add(v);
                 }
             }
@@ -95,32 +106,26 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
         const zPos = -(i * spacingZ);
         const customStruct = activeStructures.find(s => s.zIndex === i);
 
-        // 1. INJECT CUSTOM STRUCTURES
+        // 1. INJECT CUSTOM STRUCTURES (Reusing shared materials)
         if (customStruct) {
-            const localSMat = solidMaterial.clone(); localSMat.transparent = false;
-            const localWMat = wireframeMaterial.clone(); localWMat.transparent = true;
-
-            const pGroup = customStruct.builder(createVoxel, localSMat, localWMat);
+            const pGroup = customStruct.builder(createVoxel, solidMaterial, wireframeMaterial);
             pGroup.position.set(0, pillarYOffset, zPos);
-            pGroup.userData = { sMat: localSMat, wMat: localWMat };
+            pGroup.userData = { sMat: solidMaterial, wMat: wireframeMaterial };
 
             sceneBg.add(pGroup);
             pillarGroups.push(pGroup);
-            continue; // Skip procedural generation for this index
+            continue;
         }
 
-        // 2. PROCEDURAL GENERATION BACKUP
+        // 2. PROCEDURAL GENERATION BACKUP (Reusing shared materials)
         [-1, 1].forEach(sideMultiplier => {
             const xPos = (corridorWidth / 2) * sideMultiplier;
             const stateIndex = Math.min(Math.floor(seededRandom() * states.length), states.length - 1);
             const stateType = states[stateIndex] || 'intact';
 
-            const localSMat = solidMaterial.clone(); localSMat.transparent = false;
-            const localWMat = wireframeMaterial.clone(); localWMat.transparent = true;
-
-            const pGroup = buildProceduralPillar(stateType, localSMat, localWMat);
+            const pGroup = buildProceduralPillar(stateType, solidMaterial, wireframeMaterial);
             pGroup.position.set(xPos, pillarYOffset, zPos);
-            pGroup.userData = { sMat: localSMat, wMat: localWMat };
+            pGroup.userData = { sMat: solidMaterial, wMat: wireframeMaterial };
             sceneBg.add(pGroup);
             pillarGroups.push(pGroup);
 
@@ -128,16 +133,13 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
                 const debrisGroup = new THREE.Group();
                 sceneBg.add(debrisGroup);
                 debrisClusters.push(debrisGroup);
-
-                const debrisSMat = solidMaterial.clone(); debrisSMat.transparent = false;
-                const debrisWMat = wireframeMaterial.clone(); debrisWMat.transparent = true;
-                debrisGroup.userData = { sMat: debrisSMat, wMat: debrisWMat };
+                debrisGroup.userData = { sMat: solidMaterial, wMat: wireframeMaterial };
 
                 const cubeCount = Math.floor(seededRandom() * 5) + 2;
                 const epicenterY = stateType === 'shattered-top' ? 10 : 5;
 
                 for (let j = 0; j < cubeCount; j++) {
-                    const v = createVoxel(0, 0, 0, debrisSMat, debrisWMat);
+                    const v = createVoxel(0, 0, 0, solidMaterial, wireframeMaterial, true);
                     if (v) {
                         v.scale.setScalar(seededRandom() * 1.0 + 0.5);
                         const scatterX = (seededRandom() - 0.5) * 4;
@@ -146,7 +148,6 @@ export function initVoxels(corridorDepthCount, spacingZ, panelWrapDistance) {
 
                         v.position.set(scatterX + (sideMultiplier * -2), scatterY + epicenterY, scatterZ);
                         v.rotation.set(seededRandom() * Math.PI, seededRandom() * Math.PI, 0);
-                        v.userData.isStatic = false;
                         v.userData.rotX = (seededRandom() - 0.5) * 0.04;
                         v.userData.rotY = (seededRandom() - 0.5) * 0.04;
 
