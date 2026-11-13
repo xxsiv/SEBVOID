@@ -104,7 +104,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         state.currentVelocity.x += (state.targetVelocity.x - state.currentVelocity.x) * 0.15;
         state.currentVelocity.y += (state.targetVelocity.y - state.currentVelocity.y) * 0.15;
 
-        cursorTiltContainer.rotation.x += (cursorData.targetTiltX - cursorData.rotation.x) * 0.3;
+        // FIXED: Replaced cursorData.rotation.x with cursorTiltContainer.rotation.x
+        cursorTiltContainer.rotation.x += (cursorData.targetTiltX - cursorTiltContainer.rotation.x) * 0.3;
         cursorSpinGroup.rotation.y -= 0.02;
 
         for (let i = harvestingCubes.length - 1; i >= 0; i--) {
